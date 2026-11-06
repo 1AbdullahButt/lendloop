@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+  @apply bg-stone-50 text-stone-900 antialiased;
+}
+
+/* Visible focus ring for keyboard users on every interactive element. */
+:where(a, button, input, select, textarea, summary):focus-visible {
+  @apply outline-2 outline-offset-2 outline-emerald-600;
+}

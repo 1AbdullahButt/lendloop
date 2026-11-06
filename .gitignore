@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+/.pnp
+.pnp.*
+
+# next.js
+.next/
+/out/
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# testing
+/coverage
+playwright-report/
+test-results/
+/blob-report/
+/playwright/.cache/
+
+# env files: secrets never touch the repo (.env.example is names only)
+.env
+.env.local
+.env*.local
+n8n/.env
+
+# agent loop marker
+.build-in-progress
+
+# misc
+.DS_Store
+*.pem
+*.log
+.vercel
+

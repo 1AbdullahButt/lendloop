@@ -1,0 +1,1 @@
+The tester agent writes the acceptance tests here, one or more per AC in SPEC.md, plus CONTRACT.md describing the function names, argument shapes and error codes. Once `.tests-locked` exists, this folder is read-only for every agent.

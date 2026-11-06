@@ -1,0 +1,284 @@
+{
+  "name": "LendLoop: overdue reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "dfb47e04-49d1-4574-a520-8a3d7a660f95",
+      "name": "Daily 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "7e1ae9f3-7c67-4e41-893d-0dfac3ca3c86",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Signs the GET for Convex: \"sha256=\" + hex(HMAC-SHA256(secret, timestamp + \".\")) — a GET signs\n// the empty body. The timestamp is taken now, right before the request; the HTTP node's retries\n// (3 tries, 10 s apart, 10 s timeout) finish well inside Convex's 5-minute window.\nconst crypto = require('crypto');\n\nconst secret = $env.N8N_TO_CONVEX_SECRET;\nif (!secret) throw new Error('N8N_TO_CONVEX_SECRET is not set in the n8n environment');\nif (!$env.CONVEX_SITE_URL) throw new Error('CONVEX_SITE_URL is not set in the n8n environment');\n\nconst timestamp = String(Date.now());\nconst signature = 'sha256=' + crypto.createHmac('sha256', secret).update(timestamp + '.', 'utf8').digest('hex');\nreturn [{ json: { timestamp, signature } }];\n"
+      },
+      "id": "58f0e9fd-7f41-4fcc-a72b-fe90d3f6cbf3",
+      "name": "Sign GET overdue-loans",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/overdue-loans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-LendLoop-Timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "X-LendLoop-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "408412bd-26c0-4258-8017-359e8fdf61e9",
+      "name": "GET overdue loans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 10000
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body",
+        "options": {}
+      },
+      "id": "a9a4e433-ed46-435e-81ea-fc6767c4bac7",
+      "name": "Split overdue loans",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock \"Send reminder\": stands in for an SMTP node. One JSON line per overdue loan goes to the\n// outbox file. A failed send is not thrown: it becomes status \"failed\" with a short error, so\n// Convex records the attempt instead of the whole run aborting.\nconst fs = require('fs');\n\n// Keep only the first character and the domain: enough to tell recipients apart in a log.\nconst maskEmail = (email) => {\n  const parts = String(email || '').split('@');\n  if (parts.length !== 2 || !parts[0] || !parts[1]) return '***';\n  return parts[0].slice(0, 1) + '***@' + parts[1];\n};\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n\nconst outbox = $env.LENDLOOP_MOCK_OUTBOX;\n\nconst results = [];\nfor (const item of $input.all()) {\n  const loan = item.json;\n  if (!loan.loanId || !loan.idempotencyKey) {\n    // Contract violation from Convex: nothing can be written back without these keys.\n    throw new Error('overdue-loans item is missing loanId or idempotencyKey');\n  }\n  const base = { loanId: loan.loanId, idempotencyKey: loan.idempotencyKey };\n  try {\n    if (!outbox) throw new Error('LENDLOOP_MOCK_OUTBOX is not set');\n    const entry = {\n      at: new Date().toISOString(),\n      channel: 'overdue-reminder',\n      loanId: loan.loanId,\n      to: maskEmail(loan.borrowerEmail),\n      subject: oneLine('Reminder: please return ' + loan.toolName, 200),\n      message: oneLine(\n        'Hi ' + loan.borrowerName + ', ' + loan.toolName + ' was due back on ' + loan.endDate +\n          '. Please return it to its owner and ask them to mark it returned in LendLoop.',\n        500,\n      ),\n    };\n    fs.appendFileSync(outbox, JSON.stringify(entry) + '\\n');\n    results.push({ json: { ...base, status: 'sent', to: entry.to } });\n  } catch (error) {\n    results.push({ json: { ...base, status: 'failed', error: oneLine(error && error.message, 200) } });\n  }\n}\nreturn results;\n"
+      },
+      "id": "de3db299-40e1-4663-a12c-2e403f9429f8",
+      "name": "Send reminder (mock outbox)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "9649e15b-170e-432c-94d1-6fbe41aacbf1",
+      "name": "One at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the exact JSON string that will be sent and signs that string. The HTTP node sends\n// $json.body as a raw body, so the bytes Convex verifies are the bytes signed here.\n// Signed per item, right before its POST, so a long list never ages a timestamp past 5 minutes.\nconst crypto = require('crypto');\n\nconst secret = $env.N8N_TO_CONVEX_SECRET;\nif (!secret) throw new Error('N8N_TO_CONVEX_SECRET is not set in the n8n environment');\n\nreturn $input.all().map((item) => {\n  const r = item.json;\n  const payload = { idempotencyKey: r.idempotencyKey, loanId: r.loanId, status: r.status };\n  if (r.status === 'failed' && r.error) payload.error = String(r.error).slice(0, 200);\n  const body = JSON.stringify(payload);\n  const timestamp = String(Date.now());\n  const signature = 'sha256=' + crypto.createHmac('sha256', secret).update(timestamp + '.' + body, 'utf8').digest('hex');\n  return { json: { body, timestamp, signature } };\n});\n"
+      },
+      "id": "05ddd7ec-155b-4bc2-97de-7802ad03e3ad",
+      "name": "Sign POST reminder-status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/reminder-status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-LendLoop-Timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "X-LendLoop-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "47298e6c-b063-46bf-8059-38ba5bd957ee",
+      "name": "POST reminder status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 10000
+    }
+  ],
+  "connections": {
+    "Daily 09:00": {
+      "main": [
+        [
+          {
+            "node": "Sign GET overdue-loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Sign GET overdue-loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign GET overdue-loans": {
+      "main": [
+        [
+          {
+            "node": "GET overdue loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET overdue loans": {
+      "main": [
+        [
+          {
+            "node": "Split overdue loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split overdue loans": {
+      "main": [
+        [
+          {
+            "node": "Send reminder (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send reminder (mock outbox)": {
+      "main": [
+        [
+          {
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One at a time": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Sign POST reminder-status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign POST reminder-status": {
+      "main": [
+        [
+          {
+            "node": "POST reminder status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST reminder status": {
+      "main": [
+        [
+          {
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

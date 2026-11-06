@@ -1,0 +1,18 @@
+Locked: 2026-11-06
+By: tester agent
+Contract: tests/acceptance/CONTRACT.md
+
+Files:
+tests/acceptance/CONTRACT.md
+tests/acceptance/_helpers.ts
+tests/acceptance/tools-public.test.ts
+tests/acceptance/tools-validation.test.ts
+tests/acceptance/rbac.test.ts
+tests/acceptance/loans.test.ts
+tests/acceptance/automation.test.ts
+tests/acceptance/hmac.test.ts
+tests/acceptance/http.test.ts
+tests/acceptance/no-secrets.test.ts
+tests/acceptance/readme.test.ts
+tests/acceptance/e2e/public-page.spec.ts
+tests/acceptance/e2e/auth-gate.spec.ts

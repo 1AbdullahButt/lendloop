@@ -1,0 +1,126 @@
+{
+  "name": "LendLoop: error handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ceb5027e-464f-4444-bf1c-898a1524207f",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formats the failure as one line and appends it to the mock outbox. Error messages can echo\n// request data, so anything that looks like an email address is redacted and the text is capped.\nconst fs = require('fs');\n\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\nconst redact = (text) => text.replace(/[^\\s@\"'<>]+@[^\\s@\"'<>]+/g, '[redacted-email]');\n\nconst data = $input.first().json;\n// A failing trigger node reports under \"trigger\" and has no execution yet.\nconst execution = data.execution || {};\nconst failure = execution.error || (data.trigger && data.trigger.error) || {};\n\nconst alert = {\n  at: new Date().toISOString(),\n  channel: 'error-handler',\n  workflow: oneLine(data.workflow && data.workflow.name, 120),\n  node: oneLine((failure.node && failure.node.name) || execution.lastNodeExecuted || 'unknown', 120),\n  error: redact(oneLine(failure.message || failure.description || 'unknown error', 500)),\n  executionId: execution.id || null,\n  executionUrl: execution.url || null,\n};\nalert.text =\n  'LendLoop n8n failure: workflow \"' + alert.workflow + '\", node \"' + alert.node + '\": ' + alert.error +\n  (alert.executionId ? ' (execution ' + alert.executionId + (alert.executionUrl ? ', ' + alert.executionUrl : '') + ')' : '');\n\nconst outbox = $env.LENDLOOP_MOCK_OUTBOX;\nif (outbox) fs.appendFileSync(outbox, JSON.stringify(alert) + '\\n');\nreturn [{ json: alert }];\n"
+      },
+      "id": "a2e460ae-20d4-49b4-852e-04cc545252d5",
+      "name": "Format alert (mock outbox)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "29db6d85-74c6-4826-a153-df1b49718f94",
+              "leftValue": "={{ !!$env.ALERT_WEBHOOK_URL }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "957a4118-de26-476f-9cb8-9659ccfef7f4",
+      "name": "Alert webhook configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text, content: $json.text.slice(0, 1900) }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a830b459-3cd9-49f8-9322-5e2134e53350",
+      "name": "Post to Slack/Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 10000,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format alert (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format alert (mock outbox)": {
+      "main": [
+        [
+          {
+            "node": "Alert webhook configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert webhook configured?": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack/Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

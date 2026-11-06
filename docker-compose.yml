@@ -1,0 +1,51 @@
+# Local n8n for LendLoop. Secrets come from n8n/.env (git-ignored), never from this file.
+# See n8n/README.md for setup, the tunnel, importing workflows and reading the mock outbox.
+services:
+  n8n:
+    # Pinned: n8n 2.x changed Code node defaults (task runners, env access). Bump deliberately
+    # and re-check the "n8n version notes" in n8n/README.md when you do.
+    image: n8nio/n8n:2.47.1
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    # n8n/.env holds CONVEX_TO_N8N_SECRET, N8N_TO_CONVEX_SECRET, CONVEX_SITE_URL, WEBHOOK_URL
+    # and optionally ALERT_WEBHOOK_URL (template: n8n/.env.example).
+    # WEBHOOK_URL (your public tunnel URL) is passed through from there; it is deliberately not
+    # repeated below, because an entry under `environment:` would override the env_file value.
+    env_file:
+      - ./n8n/.env
+    environment:
+      - GENERIC_TIMEZONE=Asia/Karachi
+      - TZ=Asia/Karachi
+      # n8n 2.x runs every Code node in a task runner. Internal mode = a child process inside
+      # this container (same filesystem, so the mock outbox works). Fine for a local instance
+      # holding mock data only; production should use external mode (see n8n/README.md).
+      - N8N_RUNNERS_MODE=internal
+      # Code nodes may require only these builtins: crypto (HMAC), fs (mock outbox).
+      # In internal mode n8n passes this variable through to the runner process.
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto,fs
+      # n8n 2.x blocks $env in Code nodes and expressions by default; the workflows read
+      # their secrets from $env so nothing secret is ever stored in workflow JSON.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Mock notifications and error alerts are appended here (JSON lines, emails masked)
+      - LENDLOOP_MOCK_OUTBOX=/home/node/.n8n/mock-outbox.log
+      # Execution logs contain the webhook payload (one recipient email): keep them one week only
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  # Optional public URL for n8n, because cloud Convex cannot reach localhost:5678.
+  # Start with `docker compose --profile tunnel up -d tunnel`, then read the
+  # https://<random>.trycloudflare.com URL from `docker compose logs tunnel`.
+  # A quick tunnel needs no Cloudflare account; its URL changes on every restart.
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://n8n:5678
+    depends_on:
+      - n8n
+
+volumes:
+  n8n_data:

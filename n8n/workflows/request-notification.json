@@ -1,0 +1,574 @@
+{
+  "name": "LendLoop: request notification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lendloop-request",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "7f54db28-9409-4c3e-9706-793e9ce78acb",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "6958603d-27d4-4064-8605-5014331fbe25"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verifies X-LendLoop-Signature = \"sha256=\" + hex(HMAC-SHA256(secret, timestamp + \".\" + rawBody)).\n// The HMAC is computed over the exact bytes the Webhook received (Raw Body option), never over\n// re-serialised JSON: key order, whitespace or unicode escaping could differ from what Convex signed.\nconst crypto = require('crypto');\n\nconst secret = $env.CONVEX_TO_N8N_SECRET;\nif (!secret) {\n  // Misconfiguration, not a bad request: fail loudly so the error workflow raises an alert.\n  throw new Error('CONVEX_TO_N8N_SECRET is not set in the n8n environment');\n}\n\nconst MAX_SKEW_MS = 5 * 60 * 1000;\nconst item = $input.first();\n// Node's HTTP server lowercases header names.\nconst headers = item.json.headers || {};\nconst timestamp = String(headers['x-lendloop-timestamp'] || '');\nconst signature = String(headers['x-lendloop-signature'] || '');\n\n// Only a reason for the execution log; the caller always gets a bare 401.\nconst reject = (reason) => [{ json: { valid: false, reason } }];\n\n// The helper resolves both inline (base64) and stored (filesystem/database) binary data.\nconst binaryHelpers = (this && this.helpers) || (typeof helpers !== 'undefined' ? helpers : undefined);\n\nasync function readRawBody() {\n  const binary = item.binary && item.binary.data;\n  if (!binary) return null;\n  if (binaryHelpers && typeof binaryHelpers.getBinaryDataBuffer === 'function') {\n    return await binaryHelpers.getBinaryDataBuffer(0, 'data');\n  }\n  // Fallback: inline binary data is the base64 of the exact bytes received.\n  if (!binary.id && typeof binary.data === 'string') return Buffer.from(binary.data, 'base64');\n  throw new Error('Raw body is stored externally and getBinaryDataBuffer is unavailable');\n}\n\nif (!/^\\d{1,16}$/.test(timestamp)) return reject('missing or malformed timestamp');\nif (Math.abs(Date.now() - Number(timestamp)) > MAX_SKEW_MS) return reject('stale timestamp');\nif (!/^sha256=[0-9a-f]{64}$/.test(signature)) return reject('missing or malformed signature');\n\nconst rawBody = await readRawBody();\nif (!rawBody) {\n  // Without the raw bytes there is nothing safe to verify; never fall back to $json.body.\n  return reject('raw body unavailable (enable Webhook option Raw Body)');\n}\n\nconst expected = crypto\n  .createHmac('sha256', secret)\n  .update(timestamp + '.', 'utf8')\n  .update(rawBody)\n  .digest();\nconst received = Buffer.from(signature.slice('sha256='.length), 'hex');\n// Both are 32 bytes (the regex above guarantees the received length), as timingSafeEqual requires.\nif (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {\n  return reject('bad signature');\n}\n\nlet payload;\ntry {\n  payload = JSON.parse(rawBody.toString('utf8'));\n} catch (error) {\n  return reject('signed body is not JSON');\n}\n\n// Pass on only the fields the notification needs; headers and the raw body stop here.\nreturn [{\n  json: {\n    valid: true,\n    eventId: payload.eventId,\n    type: payload.type,\n    loanId: payload.loanId,\n    toolName: payload.toolName,\n    recipientName: payload.recipientName,\n    recipientEmail: payload.recipientEmail,\n    startDate: payload.startDate,\n    endDate: payload.endDate,\n  },\n}];\n"
+      },
+      "id": "37343202-babf-45a2-a47b-865e128c37e4",
+      "name": "Verify signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "7303a288-74fc-4c6a-beda-6920aa07b8b7",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9b32779f-e0c8-4fdb-8f7f-2af61735ca25",
+      "name": "Signature valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "b65c582c-fcdc-4e79-a393-37757a2418ee",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "loan.requested",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "requested"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "bfd8a316-2d8a-47ab-84b8-4422da22b37c",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "loan.approved",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "approved"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "d6c50394-b1fa-40fb-8ae9-de57a83e07e4",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "loan.declined",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "declined"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "3bac69cc-0c52-4fd2-bbab-ee516f7f05ca",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "loan.returned",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "returned"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "55e73ce5-50ee-46d6-9140-1ceb7ed992a7",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "loan.cancelled",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancelled"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "310807b6-04ba-494e-a1d6-0055e9415000",
+      "name": "Route by type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7142f2f3-5f6d-4ee4-8353-149b35a41758",
+              "name": "subject",
+              "value": "=New borrow request for {{ $json.toolName }}",
+              "type": "string"
+            },
+            {
+              "id": "fe256abd-8121-4b0f-a0aa-14e580fd4c81",
+              "name": "message",
+              "value": "=Hi {{ $json.recipientName }}, a neighbour asked to borrow your {{ $json.toolName }} from {{ $json.startDate }} to {{ $json.endDate }}. Open LendLoop to approve or decline.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "5660195c-f20e-4e88-a8bc-71256043abf9",
+      "name": "Compose loan.requested",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "603a2d16-27d3-4c3a-9bbc-f2a3c7a5fbb6",
+              "name": "subject",
+              "value": "=Your request for {{ $json.toolName }} was approved",
+              "type": "string"
+            },
+            {
+              "id": "5664ca1e-b7a7-4c6b-bff2-de559cb1d227",
+              "name": "message",
+              "value": "=Hi {{ $json.recipientName }}, your request to borrow {{ $json.toolName }} from {{ $json.startDate }} to {{ $json.endDate }} was approved.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "a071c044-ad16-449d-a989-74ec46e00fdd",
+      "name": "Compose loan.approved",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "be4534a7-8a7d-4f43-af42-6c912d252c5b",
+              "name": "subject",
+              "value": "=Your request for {{ $json.toolName }} was declined",
+              "type": "string"
+            },
+            {
+              "id": "f5896045-be58-4183-9b02-78563f0152cb",
+              "name": "message",
+              "value": "=Hi {{ $json.recipientName }}, your request to borrow {{ $json.toolName }} from {{ $json.startDate }} to {{ $json.endDate }} was declined.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "299ae453-cfab-4146-87a9-36bfa498c566",
+      "name": "Compose loan.declined",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8c91955b-e8d7-459a-aebc-03d630e0d7ae",
+              "name": "subject",
+              "value": "={{ $json.toolName }} was marked returned",
+              "type": "string"
+            },
+            {
+              "id": "50f1a2c6-0cc6-4b8e-8a03-7b83460841be",
+              "name": "message",
+              "value": "=Hi {{ $json.recipientName }}, the loan of {{ $json.toolName }} ({{ $json.startDate }} to {{ $json.endDate }}) was marked returned. Thanks for using LendLoop.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "89b6546e-8f97-478f-a6bb-2823b9e658ca",
+      "name": "Compose loan.returned",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e7d52eab-99f6-434c-9a89-b580415ae49a",
+              "name": "subject",
+              "value": "=Request for {{ $json.toolName }} cancelled",
+              "type": "string"
+            },
+            {
+              "id": "6f7dcdd4-15ba-4b59-afe4-9889dfc8face",
+              "name": "message",
+              "value": "=Hi {{ $json.recipientName }}, the request to borrow {{ $json.toolName }} from {{ $json.startDate }} to {{ $json.endDate }} was cancelled.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "6c30a0fa-6eb9-4e14-bf9e-c7fb6885d745",
+      "name": "Compose loan.cancelled",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock \"Send\": stands in for an SMTP node. Appends one JSON line per notification to the\n// outbox file and returns it so it also shows in the execution log. The address is masked in\n// both places; only a real email node would ever need the full address.\nconst fs = require('fs');\n\n// Keep only the first character and the domain: enough to tell recipients apart in a log.\nconst maskEmail = (email) => {\n  const parts = String(email || '').split('@');\n  if (parts.length !== 2 || !parts[0] || !parts[1]) return '***';\n  return parts[0].slice(0, 1) + '***@' + parts[1];\n};\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n\nconst outbox = $env.LENDLOOP_MOCK_OUTBOX;\nif (!outbox) throw new Error('LENDLOOP_MOCK_OUTBOX is not set in the n8n environment');\n\nconst sent = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  const entry = {\n    at: new Date().toISOString(),\n    channel: 'request-notification',\n    eventId: j.eventId,\n    type: j.type,\n    to: maskEmail(j.recipientEmail),\n    subject: oneLine(j.subject, 200),\n    message: oneLine(j.message, 500),\n  };\n  fs.appendFileSync(outbox, JSON.stringify(entry) + '\\n');\n  sent.push({ json: entry });\n}\nreturn sent;\n"
+      },
+      "id": "b66f2623-4446-4227-807a-373018b1fe7e",
+      "name": "Send (mock outbox)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "e92d02ee-6463-455d-8206-2706e24212c1",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1360,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "c7fedbb1-b5a8-47ed-b3fa-5f7f0c4dafcd",
+      "name": "Respond 401 (bad signature)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "eb85025e-4532-4c76-912a-71cdb80931df",
+      "name": "Respond 400 (unknown type)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        680
+      ]
+    }
+  ],
+  "connections": {
+    "Route by type": {
+      "main": [
+        [
+          {
+            "node": "Compose loan.requested",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose loan.approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose loan.declined",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose loan.returned",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose loan.cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400 (unknown type)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose loan.requested": {
+      "main": [
+        [
+          {
+            "node": "Send (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose loan.approved": {
+      "main": [
+        [
+          {
+            "node": "Send (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose loan.declined": {
+      "main": [
+        [
+          {
+            "node": "Send (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose loan.returned": {
+      "main": [
+        [
+          {
+            "node": "Send (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose loan.cancelled": {
+      "main": [
+        [
+          {
+            "node": "Send (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify signature": {
+      "main": [
+        [
+          {
+            "node": "Signature valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature valid?": {
+      "main": [
+        [
+          {
+            "node": "Route by type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 401 (bad signature)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send (mock outbox)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
