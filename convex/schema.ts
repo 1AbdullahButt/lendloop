@@ -43,6 +43,8 @@ export default defineSchema({
     email: v.string(),
     role,
     trustedLender: v.boolean(),
+    // IANA name ("Asia/Karachi"); decides the user's "today" for R2. Unset means UTC.
+    timeZone: v.optional(v.string()),
   }).index("by_clerkId", ["clerkId"]),
 
   tools: defineTable({

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { displayName, requireUser } from "./lib/auth";
 import { appError } from "./lib/errors";
+import { isValidTimeZone } from "./lib/zones";
 import { role } from "./schema";
 
 /** Read at call time so a changed env var applies without a redeploy. */
@@ -42,6 +43,23 @@ export const ensure = mutation({
 
     if (Object.keys(patch).length > 0) await ctx.db.patch(user._id, patch);
     return (await ctx.db.get(user._id))!;
+  },
+});
+
+/**
+ * The caller's time zone, an IANA name. The client sets it to the browser's zone on first
+ * sign-in, and the user can change it from the header menu. Only the caller's own row.
+ */
+export const setTimeZone = mutation({
+  args: { timeZone: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const timeZone = args.timeZone.trim();
+    if (!isValidTimeZone(timeZone)) {
+      throw appError("INVALID", "Pick a time zone from the list, for example Asia/Karachi.");
+    }
+    if (user.timeZone !== timeZone) await ctx.db.patch(user._id, { timeZone });
+    return timeZone;
   },
 });
 

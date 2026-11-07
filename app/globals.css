@@ -504,7 +504,8 @@
   /* Borrowing card ledger rows (My requests activity). */
   .ledger-row {
     display: grid;
-    grid-template-columns: 136px 92px minmax(0, 1fr);
+    /* Wide enough for "Nov 12 12:07 AM GMT+5:30" on one line; times name their zone. */
+    grid-template-columns: 200px 92px minmax(0, 1fr);
     gap: 12px;
     padding: 9px 0;
     border-top: 1px solid var(--color-rule-blue);

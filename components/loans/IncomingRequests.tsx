@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { addDays, daysBetween, daysOverdue, formatDate, formatDateRange, formatDayLong, todayUtc } from "@/lib/dates";
+import { askedLabel, daysBetween, daysOverdue, formatDate, formatDateRange, formatDayLong, todayIn } from "@/lib/dates";
+import { calendarStrip } from "@/lib/calendarStrip";
 import { firstName, shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
 import { useNow } from "@/lib/useNow";
+import { useTimeZone } from "../TimeZone";
 import { TrustedBadge } from "../ui/Badges";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
@@ -29,14 +31,6 @@ function overlapRange(a: Loan, b: Loan) {
   return formatDateRange(from, to);
 }
 
-function askedLabel(createdAt: number, now: number): string {
-  const day = (ms: number) => new Date(ms).toDateString();
-  const time = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(createdAt);
-  if (day(createdAt) === day(now)) return `Asked today, ${time}`;
-  if (day(createdAt) === day(now - 86_400_000)) return "Asked yesterday";
-  return `Asked ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(createdAt)}`;
-}
-
 /** Why Approve is off, mirroring convex/loans.ts (the server re-checks both rules). */
 function blockedReason(loan: Loan, all: Loan[], today: string): string | null {
   const first = firstName(loan.borrowerName);
@@ -50,13 +44,9 @@ function blockedReason(loan: Loan, all: Loan[], today: string): string | null {
 
 /** Day strip for one tool: each request (and approved loan) as a bar, with today marked. */
 function Calendar({ tool, rows, today }: { tool: string; rows: Loan[]; today: string }) {
-  const lo = [today, ...rows.map((r) => r.startDate)].sort()[0];
-  const hi = rows.map((r) => r.endDate).sort().slice(-1)[0] ?? today;
-  const start = addDays(lo, -1);
-  const span = Math.max(14, daysBetween(start, hi) + 2);
-  const end = addDays(start, span - 1);
-  const pos = (d: string) => (daysBetween(start, d) / span) * 100;
-  const todayLeft = pos(today) + 100 / span / 2;
+  const strip = calendarStrip(today, rows);
+  const todayLeft = strip.todayPct;
+  const todayShift = { start: "translate-x-0", center: "-translate-x-1/2", end: "-translate-x-full" }[strip.todayAlign];
   const label = `${tool} calendar: ${rows
     .map((r) => `${shortName(r.borrowerName)} ${formatDateRange(r.startDate, r.endDate)}, ${r.status}`)
     .join("; ")}. Today is ${formatDate(today)}.`;
@@ -76,8 +66,8 @@ function Calendar({ tool, rows, today }: { tool: string; rows: Loan[]; today: st
               <div
                 className="absolute top-[3px] bottom-[3px] rounded"
                 style={{
-                  left: `${pos(r.startDate)}%`,
-                  width: `${((daysBetween(r.startDate, r.endDate) + 1) / span) * 100}%`,
+                  left: `${strip.pos(r.startDate)}%`,
+                  width: `${strip.width(r.startDate, r.endDate)}%`,
                   background: look.fill,
                   border: `2px ${look.style} ${look.line}`,
                 }}
@@ -90,11 +80,11 @@ function Calendar({ tool, rows, today }: { tool: string; rows: Loan[]; today: st
       <div className="track-row" aria-hidden="true">
         <span />
         <div className="mono relative h-4 text-xs text-ink-2">
-          <span className="absolute left-0">{formatDate(start).toUpperCase()}</span>
-          <span className="absolute -translate-x-1/2 font-semibold text-ink" style={{ left: `${todayLeft}%` }}>
+          {strip.startLabel ? <span className="absolute left-0">{formatDate(strip.startLabel).toUpperCase()}</span> : null}
+          <span className={`absolute ${todayShift} font-semibold text-ink`} style={{ left: `${todayLeft}%` }}>
             TODAY
           </span>
-          <span className="absolute right-0">{formatDate(end).toUpperCase()}</span>
+          {strip.endLabel ? <span className="absolute right-0">{formatDate(strip.endLabel).toUpperCase()}</span> : null}
         </div>
       </div>
     </div>
@@ -116,6 +106,7 @@ function RequestRow({
   verdict?: Verdict;
   onDecided: (id: Id<"loans">, v: Verdict) => void;
 }) {
+  const zone = useTimeZone();
   const [confirming, setConfirming] = useState(false);
   const approve = useAction(useMutation(api.loans.approve));
   const decline = useAction(useMutation(api.loans.decline));
@@ -139,7 +130,7 @@ function RequestRow({
           {loan.borrowerTrusted ? <TrustedBadge compact /> : null}
         </span>
         <span className="text-sm text-ink-2">
-          {days} {days === 1 ? "day" : "days"} · {askedLabel(loan.createdAt, now)}
+          {days} {days === 1 ? "day" : "days"} · {askedLabel(loan.createdAt, now, zone)}
         </span>
         {why ? (
           <span id={whyId} className="text-sm text-brick">
@@ -309,7 +300,8 @@ function OutOnLoan({ loan, today, returnedHere, onReturned }: { loan: Loan; toda
 function IncomingBody() {
   const loans = useQuery(api.loans.listIncoming);
   const now = useNow();
-  const today = todayUtc(now);
+  const zone = useTimeZone();
+  const today = todayIn(zone, now);
   // Decisions made on this visit keep their stamp in place instead of vanishing from the list.
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [returned, setReturned] = useState<Record<string, true>>({});
@@ -317,7 +309,7 @@ function IncomingBody() {
   return (
     <>
       <PageHeader title="Incoming requests">
-        Neighbors asking to borrow your tools, grouped by tool. Today is {formatDayLong(today)}.
+        Neighbors asking to borrow your tools, grouped by tool. Today is {formatDayLong(today)} · {zone.replace(/_/g, " ")}.
       </PageHeader>
       {loans === undefined ? (
         <LoadingState label="Loading incoming requests…" />

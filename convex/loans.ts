@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { requireUser } from "./lib/auth";
-import { daysBetween, isIsoDate, rangesOverlap, todayUtc } from "./lib/dates";
+import { daysBetween, isIsoDate, rangesOverlap } from "./lib/dates";
+import { todayIn } from "./lib/zones";
 import { appError } from "./lib/errors";
 import { queueLoanEvent } from "./lib/events";
 import { loanActivity, loanAutomation, makeLookups } from "./lib/views";
@@ -10,11 +11,12 @@ import { loanActivity, loanAutomation, makeLookups } from "./lib/views";
 /** endDate - startDate may be at most this many days (start + 30 is allowed). */
 export const MAX_LOAN_DAYS = 30;
 
-function checkDates(startDate: string, endDate: string): void {
+/** R2, with "today" taken in the acting user's own time zone (UTC if they have none). */
+function checkDates(startDate: string, endDate: string, today: string): void {
   if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
     throw appError("INVALID", "Dates must be real dates in YYYY-MM-DD format.");
   }
-  if (startDate < todayUtc()) throw appError("INVALID", "Start date cannot be in the past.");
+  if (startDate < today) throw appError("INVALID", "Start date cannot be in the past.");
   if (endDate < startDate) throw appError("INVALID", "End date must be on or after the start date.");
   if (daysBetween(startDate, endDate) > MAX_LOAN_DAYS) {
     throw appError("INVALID", `A loan can last at most ${MAX_LOAN_DAYS} days.`);
@@ -46,7 +48,7 @@ export const request = mutation({
     // Removed tools look absent to everyone but admins (R6).
     if (!tool || tool.removedAt !== undefined) throw appError("NOT_FOUND", "Tool not found.");
     if (tool.ownerId === me._id) throw appError("FORBIDDEN", "You cannot borrow your own tool.");
-    checkDates(args.startDate, args.endDate);
+    checkDates(args.startDate, args.endDate, todayIn(me.timeZone));
 
     const loanId = await ctx.db.insert("loans", {
       toolId: tool._id,
@@ -80,9 +82,9 @@ export const approve = mutation({
     const me = await requireUser(ctx);
     const loan = await loadLoanAs(ctx, args.loanId, me, "lender");
     requireStatus(loan, "pending");
-    // R2 is re-checked here: a request left pending past its start date would otherwise
-    // become an approved loan that is already running, or already overdue.
-    if (loan.startDate < todayUtc()) {
+    // R2 is re-checked here, in the lender's own zone: a request left pending past its start
+    // date would otherwise become an approved loan that is already running, or already overdue.
+    if (loan.startDate < todayIn(me.timeZone)) {
       throw appError("INVALID", "This request's start date has passed. Decline it instead.");
     }
 

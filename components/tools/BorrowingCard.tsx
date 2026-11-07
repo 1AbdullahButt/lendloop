@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
-import { formatDateRange } from "@/lib/dates";
+import { api } from "@/convex/_generated/api";
+import { formatDateRange, todayIn } from "@/lib/dates";
 import { conditionLabel } from "@/lib/labels";
+import { borrowerNextStep, holderLine } from "@/lib/loanText";
 import { firstName, shortName } from "@/lib/names";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import { useNow } from "@/lib/useNow";
+import { useTimeZone } from "../TimeZone";
 import { buttonClass } from "../ui/Button";
-import { Stamp } from "../ui/Stamp";
+import { Stamp, loanStatusLabel, loanTone } from "../ui/Stamp";
 import { RequestForm } from "./RequestForm";
 import { toolAvailability, type ToolItem } from "./ToolCard";
 
@@ -49,6 +54,16 @@ function CloseIcon() {
 export function BorrowingCard({ tool, open, onClose, onDone }: Props) {
   const [sent, setSent] = useState<{ toolId: string; startDate: string; endDate: string } | null>(null);
   const sentHere = sent && tool && sent.toolId === tool._id ? sent : null;
+  const today = todayIn(useTimeZone(), useNow());
+  // My loans on this tool, live, so the sent request's stamp follows the lender's answer and
+  // the status line knows when the tool is with me. Newest first, so `find` gets the latest.
+  const mine = useQuery(api.loans.listMine, tool && !tool.isMine ? {} : "skip");
+  const myLoans = (tool && mine?.filter((l) => l.toolId === tool._id)) || [];
+  const sentLoan = sentHere
+    ? myLoans.find((l) => l.startDate === sentHere.startDate && l.endDate === sentHere.endDate)
+    : undefined;
+  const sentStatus = sentLoan?.status ?? "pending";
+  const holding = myLoans.find((l) => l.status === "approved");
 
   useEffect(() => {
     if (!open) return;
@@ -138,7 +153,9 @@ export function BorrowingCard({ tool, open, onClose, onDone }: Props) {
               <span className="text-sm text-[#E6E0C2]">
                 {tool.isMine
                   ? "This one is yours."
-                  : tool.status === "available"
+                  : holding
+                    ? holderLine(holding, today)
+                    : tool.status === "available"
                     ? "Available now."
                     : `Out on loan right now. ${firstName(tool.ownerName)} can still approve dates that don't overlap.`}
               </span>
@@ -155,12 +172,14 @@ export function BorrowingCard({ tool, open, onClose, onDone }: Props) {
               </div>
             ) : sentHere ? (
               <div role="status" className="flex flex-col items-start gap-4 px-5 py-6.5">
-                <Stamp id="sent-stamp" tone="pending" size="lg" tilt={-3} press>
-                  Pending · {formatDateRange(sentHere.startDate, sentHere.endDate)}
+                {/* Pressed in only for the user's own send; a later answer swaps it quietly. */}
+                <Stamp id="sent-stamp" tone={loanTone(sentStatus)} size="lg" tilt={-3} press={sentStatus === "pending"}>
+                  {loanStatusLabel(sentStatus)} · {formatDateRange(sentHere.startDate, sentHere.endDate)}
                 </Stamp>
                 <p className="text-[17px]">
-                  Request sent. {firstName(tool.ownerName)} will get an email shortly. You&apos;ll see the answer in My
-                  requests.
+                  {sentLoan && sentStatus !== "pending"
+                    ? borrowerNextStep(sentLoan, today)
+                    : `Request sent. ${firstName(tool.ownerName)} will get an email shortly. You'll see the answer in My requests.`}
                 </p>
                 <div className="flex flex-wrap gap-2.5">
                   <Link href="/my/requests" className={buttonClass("primary")}>
@@ -188,7 +207,7 @@ export function BorrowingCard({ tool, open, onClose, onDone }: Props) {
                 onSent={(range) => setSent({ toolId: tool._id, ...range })}
               />
             )}
-            <span className="sr-only">Status: {toolAvailability(tool).label}</span>
+            <span className="sr-only">Status: {holding ? holderLine(holding, today) : toolAvailability(tool).label}</span>
           </>
         )}
         {modal ? <FocusGuard onFocus={() => focusEdge("first")} /> : null}

@@ -47,9 +47,13 @@ export function loanStatusLabel(status: string): string {
   return LOAN_LABEL[status] ?? status;
 }
 
+export function loanTone(status: string): StampTone {
+  return LOAN_TONE[status] ?? "cancelled";
+}
+
 export function LoanStamp({ status, ...rest }: { status: string } & Omit<Props, "tone" | "children">) {
   return (
-    <Stamp tone={LOAN_TONE[status] ?? "cancelled"} {...rest}>
+    <Stamp tone={loanTone(status)} {...rest}>
       {loanStatusLabel(status)}
     </Stamp>
   );

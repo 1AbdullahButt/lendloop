@@ -4,8 +4,9 @@ import { useMutation } from "convex/react";
 import { useId, useState, type FormEvent } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { addDays, daysBetween, formatDate, MAX_LOAN_EXTRA_DAYS, todayUtc } from "@/lib/dates";
+import { addDays, daysBetween, formatDate, MAX_LOAN_EXTRA_DAYS, todayIn } from "@/lib/dates";
 import { useAction } from "@/lib/useAction";
+import { useTimeZone } from "../TimeZone";
 import { Button } from "../ui/Button";
 import { InlineError } from "../ui/States";
 
@@ -36,7 +37,8 @@ function dateProblem(startDate: string, endDate: string, today: string): { messa
 
 export function RequestForm({ toolId, toolName, lenderFirst, lenderShort, onSent }: Props) {
   const id = useId();
-  const today = todayUtc();
+  const zone = useTimeZone();
+  const today = todayIn(zone);
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(addDays(today, 2));
   const request = useMutation(api.loans.request);
@@ -125,7 +127,7 @@ export function RequestForm({ toolId, toolName, lenderFirst, lenderShort, onSent
         ))}
       </ol>
 
-      <p className="text-sm text-ink-3">Dates are calendar days in UTC.</p>
+      <p className="text-sm text-ink-3">Dates are calendar days in your time zone, {zone.replace(/_/g, " ")}.</p>
       <InlineError message={error} />
       <Button type="submit" variant="primary" size="lg" disabled={pending || problem !== null}>
         {pending ? "Sending…" : `Send request to ${lenderFirst}`}

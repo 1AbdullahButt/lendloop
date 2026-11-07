@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
+import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { shortName } from "@/lib/names";
 import { Wordmark } from "./ui/Logo";
+import { TimeZoneDialog, useTimeZone } from "./TimeZone";
 import { QueryBoundary } from "./ui/QueryBoundary";
 
 const LINKS = [
@@ -52,6 +54,15 @@ function NavLinks() {
   );
 }
 
+function GlobeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+    </svg>
+  );
+}
+
 /**
  * Signed-in header. Before `users.ensure` finishes it shows only the logo and the Clerk
  * button, so no query runs for a user whose row doesn't exist yet.
@@ -62,6 +73,8 @@ export function AppHeader({ ready }: { ready: boolean }) {
   // /admin gets the normal header (and the page's "Admins only" state from Convex).
   const me = useQuery(api.users.me, ready ? {} : "skip");
   const onAdminPage = isActive(pathname, "/admin") && me?.role === "admin";
+  const zone = useTimeZone();
+  const [zoneOpen, setZoneOpen] = useState(false);
   return (
     <header
       className={onAdminPage ? "on-dark bg-ink text-paper" : "border-b border-line-soft bg-white"}
@@ -89,7 +102,20 @@ export function AppHeader({ ready }: { ready: boolean }) {
               {onAdminPage ? "Signed in as an admin" : shortName(me.name)}
             </span>
           ) : null}
-          <UserButton />
+          {ready ? (
+            <UserButton>
+              <UserButton.MenuItems>
+                <UserButton.Action
+                  label={`Time zone · ${zone.replace(/_/g, " ")}`}
+                  labelIcon={<GlobeIcon />}
+                  onClick={() => setZoneOpen(true)}
+                />
+              </UserButton.MenuItems>
+            </UserButton>
+          ) : (
+            <UserButton />
+          )}
+          {ready ? <TimeZoneDialog open={zoneOpen} onClose={() => setZoneOpen(false)} /> : null}
         </span>
       </div>
     </header>

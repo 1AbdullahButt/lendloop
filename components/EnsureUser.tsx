@@ -6,6 +6,7 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
 import { errorMessage } from "@/lib/errors";
+import { TimeZoneProvider } from "./TimeZone";
 import { ErrorState, LoadingState } from "./ui/States";
 
 type Phase = "ensuring" | "ready" | "error";
@@ -104,10 +105,11 @@ export function EnsureUser({
 
   if (current?.phase !== "ready") return pending(<LoadingState label="Setting up your account…" />);
 
+  // The time zone needs the users row, so it starts here; the header and page share it.
   return (
-    <>
+    <TimeZoneProvider>
       {header?.(true)}
       {children}
-    </>
+    </TimeZoneProvider>
   );
 }

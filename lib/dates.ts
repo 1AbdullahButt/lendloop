@@ -1,9 +1,17 @@
+// Every date, "today" and time a user sees is in their own time zone (users.timeZone,
+// defaulting to the browser's). Calendar dates (loan start and end) are zone-less days and
+// render as-is; moments (createdAt, sentAt) are converted, and times name their zone.
+// The server checks R2 against the same per-user "today" (convex/lib/zones.ts).
+import { todayIn } from "../convex/lib/zones";
+
+export { DEFAULT_TIME_ZONE, isValidTimeZone, todayIn } from "../convex/lib/zones";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Latest end date the form offers: start + 30 days, matching convex/loans.ts (server re-checks). */
 export const MAX_LOAN_EXTRA_DAYS = 30;
 
-/** Today as YYYY-MM-DD in UTC — the same clock Convex uses for R2. */
+/** The UTC calendar day (YYYY-MM-DD) a moment falls on: the overdue job's clock. */
 export function todayUtc(now: number = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
 }
@@ -66,15 +74,33 @@ export function formatDayLong(isoDate: string): string {
   return p ? `${WEEKDAY.format(p.ms)}, ${formatDate(isoDate)}` : isoDate;
 }
 
-const TIME = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
-const LOCAL_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+const timeFormats = new Map<string, Intl.DateTimeFormat>();
 
-/** A moment in the viewer's own time zone: "Nov 7 10:42 AM". */
-export function formatDateTime(ms: number): string {
-  return `${LOCAL_DAY.format(ms)} ${TIME.format(ms)}`;
+/** A moment's time of day in `zone`, with the zone's short name: "1:31 AM GMT+5", "9:00 PM EST". */
+export function formatTime(ms: number, zone: string): string {
+  let format = timeFormats.get(zone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone, timeZoneName: "short" });
+    timeFormats.set(zone, format);
+  }
+  return format.format(ms);
+}
+
+/** A moment in `zone`: "Nov 8 1:31 AM GMT+5". */
+export function formatDateTime(ms: number, zone: string): string {
+  return `${formatDate(todayIn(zone, ms))} ${formatTime(ms, zone)}`;
+}
+
+/** "Asked today, 1:31 AM GMT+5", "Asked yesterday" or "Asked Nov 5", by the day in `zone`. */
+export function askedLabel(createdAt: number, now: number, zone: string): string {
+  const day = todayIn(zone, createdAt);
+  const today = todayIn(zone, now);
+  if (day === today) return `Asked today, ${formatTime(createdAt, zone)}`;
+  if (day === addDays(today, -1)) return "Asked yesterday";
+  return `Asked ${formatDate(day)}`;
 }
 
 /** Days an approved loan is past its end date (0 if not overdue). */
-export function daysOverdue(endDate: string, today: string = todayUtc()): number {
+export function daysOverdue(endDate: string, today: string): number {
   return Math.max(0, daysBetween(endDate, today));
 }

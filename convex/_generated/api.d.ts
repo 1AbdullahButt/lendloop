@@ -20,6 +20,7 @@ import type * as lib_hmac from "../lib/hmac.js";
 import type * as lib_removal from "../lib/removal.js";
 import type * as lib_validation from "../lib/validation.js";
 import type * as lib_views from "../lib/views.js";
+import type * as lib_zones from "../lib/zones.js";
 import type * as loans from "../loans.js";
 import type * as seed from "../seed.js";
 import type * as tools from "../tools.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   "lib/removal": typeof lib_removal;
   "lib/validation": typeof lib_validation;
   "lib/views": typeof lib_views;
+  "lib/zones": typeof lib_zones;
   loans: typeof loans;
   seed: typeof seed;
   tools: typeof tools;

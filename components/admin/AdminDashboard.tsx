@@ -2,8 +2,9 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { todayUtc } from "@/lib/dates";
+import { todayIn } from "@/lib/dates";
 import { useNow } from "@/lib/useNow";
+import { useTimeZone } from "../TimeZone";
 import { QueryBoundary } from "../ui/QueryBoundary";
 import { EmptyState, LoadingState } from "../ui/States";
 import { AdminEvents, type AdminLoan } from "./AdminEvents";
@@ -24,7 +25,7 @@ function AdminBody() {
   const loans = useQuery(api.admin.listAllLoans);
   const tools = useQuery(api.admin.listTools);
   const users = useQuery(api.admin.listUsers);
-  const today = todayUtc(useNow());
+  const today = todayIn(useTimeZone(), useNow());
   if (!events || !loans || !tools || !users) return <LoadingState label="Loading the admin view…" />;
 
   const loanById = new Map<string, AdminLoan>(loans.map((l) => [l._id, l]));

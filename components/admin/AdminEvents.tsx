@@ -9,6 +9,7 @@ import { formatDateTime } from "@/lib/dates";
 import { isCurrentEmail } from "@/lib/loanEmail";
 import { shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
+import { useTimeZone } from "../TimeZone";
 import { Button } from "../ui/Button";
 import { loanStatusLabel, Stamp } from "../ui/Stamp";
 import { EmptyState, InlineError } from "../ui/States";
@@ -138,6 +139,7 @@ function StatusCell({
 
 /** Outbound + reminder log. Failed rows are tinted and can be resent (AC17). */
 export function AdminEvents({ events, loans }: { events: AdminEvent[]; loans: Map<string, AdminLoan> }) {
+  const zone = useTimeZone();
   const filterId = useId();
   const [failedOnly, setFailedOnly] = useState(false);
   const [resent, setResent] = useState<Record<string, true>>({});
@@ -168,7 +170,7 @@ export function AdminEvents({ events, loans }: { events: AdminEvent[]; loans: Ma
             const loan = loans.get(event.loanId);
             return (
               <tr key={event._id} className={event.status === "failed" ? "bg-[#FCF1EF]" : undefined}>
-                <td className="num">{formatDateTime(event.createdAt)}</td>
+                <td className="num">{formatDateTime(event.createdAt, zone)}</td>
                 <td>{emailLabel(event)}</td>
                 <td>{loan?.toolName ?? "—"}</td>
                 <td>{recipient(event, loan)}</td>

@@ -35,7 +35,8 @@ are in `docs/DECISIONS.md`.
 | `schema.ts` | Tables, indexes and exported enum validators (category, condition, statuses, role). |
 | `lib/auth.ts` | `requireUser` (identity → `users` row; creates the row in mutations only) and `requireAdmin` (adds `role === "admin"`, else `FORBIDDEN`). |
 | `lib/errors.ts` | `appError(code, message)` → `ConvexError({ code, message })`. |
-| `lib/dates.ts` | Strict UTC `YYYY-MM-DD` parsing, `todayUtc`, day arithmetic and inclusive range overlap. |
+| `lib/dates.ts` | Strict `YYYY-MM-DD` parsing, `todayUtc` (overdue), day arithmetic and inclusive range overlap. |
+| `lib/zones.ts` | IANA time zone validation and `todayIn(zone)`, shared with the browser. |
 | `lib/validation.ts` | Trimming and length checks for tool name (1–80) and description (≤500). |
 | `lib/events.ts` | `queueLoanEvent`: idempotent insert of a `queued` event plus `scheduler.runAfter(0, deliver)`. Also builds and parses the key `<loanId>:<type>`. |
 | `lib/removal.ts` | `softRemoveTool`, shared by owner removal and admin removal. Sets `removedAt` and cancels pending loans (setting `decidedAt`), queuing one event each. |
@@ -274,5 +275,6 @@ The borrower's `/my/requests` (from `loans.listMine` → `activity`) then shows 
   successful retry upgrades today's row from `failed` to `sent` once, and later runs skip the loan.
 - `ADMIN_EMAILS` promotion trusts the identity email unless the token says it is unverified. The
   Clerk instance should require verified primary emails.
-- "Today" is UTC in Convex. The n8n container timezone (`GENERIC_TIMEZONE`) only decides when
-  09:00 fires.
+- "Today" for the date rules (R2, approve before the start) is the day in the acting user's own
+  time zone (`users.timeZone`, UTC if unset). The daily overdue check and its reminder key stay on
+  UTC. The n8n container timezone (`GENERIC_TIMEZONE`) only decides when 09:00 fires.

@@ -463,8 +463,12 @@ mutations deterministic and gives retries and an audit trail.
 - Every public function declares `args` validators.
 - Tool names are trimmed to 1–80 chars and descriptions to at most 500. Category and condition
   must come from the schema lists.
-- Dates must be strict, real `YYYY-MM-DD` values (UTC). The start must be today or later, the end
-  on or after the start, and `end − start ≤ 30` days.
+- Dates must be strict, real `YYYY-MM-DD` values. The start must be today or later, where "today"
+  is the day in the acting user's own time zone (`users.timeZone`, validated as a real IANA name;
+  UTC if unset). The end must be on or after the start, and `end − start ≤ 30` days. Approving
+  re-checks the start against the lender's own "today". The daily overdue check stays on UTC.
+- Each user picks their time zone from the header menu (the browser's zone is the default). Every
+  date, "today" and time on screen is shown in it, with the zone named.
 - Inbound bodies are shape-checked after the signature check and get 400 if malformed.
 
 The reasoning behind each choice is recorded one line at a time in
@@ -521,7 +525,8 @@ The reasoning behind each choice is recorded one line at a time in
   manual replay, and an audit log of admin actions (removals, Trusted Lender, role changes).
 - **Quality:** e2e tests that sign in (Clerk testing tokens) and CI running `npm run check` plus
   Playwright on every PR.
-- **Product and privacy:** a timezone per user (today everything is UTC), GDPR export and deletion,
+- **Product and privacy:** overdue reminders at each borrower's own 9 AM (per-user time zones already
+  drive the date rules and the UI), GDPR export and deletion,
   and execution data for webhooks not saved at all.
 - **Names:** shorten names to first name and last initial in the queries, not only in the UI, so
   full names never leave Convex for other users.

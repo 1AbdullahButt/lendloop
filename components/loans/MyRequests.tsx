@@ -5,12 +5,14 @@ import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import { daysOverdue, formatDate, formatDateRange, formatDateTime, todayUtc } from "@/lib/dates";
+import { daysOverdue, formatDate, formatDateRange, formatDateTime, todayIn } from "@/lib/dates";
 import { buildLedger, type LedgerTag } from "@/lib/ledger";
 import { isCurrentEmail } from "@/lib/loanEmail";
+import { borrowerNextStep } from "@/lib/loanText";
 import { firstName, shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
 import { useNow } from "@/lib/useNow";
+import { useTimeZone } from "../TimeZone";
 import { TrustedBadge } from "../ui/Badges";
 import { Button, buttonClass } from "../ui/Button";
 import { QueryBoundary } from "../ui/QueryBoundary";
@@ -34,29 +36,6 @@ function groupOf(loan: MyLoan): Exclude<Tab, "all"> {
   if (loan.status === "pending") return "waiting";
   if (loan.status === "approved") return "out";
   return "past";
-}
-
-/** What happens next, in one sentence. */
-function nextStep(loan: MyLoan, today: string): string {
-  const lender = firstName(loan.lenderName);
-  switch (loan.status) {
-    case "pending":
-      return loan.startDate < today
-        ? `Your start date has passed, so ${lender} can only decline this. Cancel it and ask again with new dates.`
-        : `Waiting for ${lender}, who can say yes until ${formatDate(loan.startDate)}, your start date. After that the request lapses.`;
-    case "approved":
-      if (loan.endDate < today) return `You have it. A reminder goes out each morning until ${lender} marks it returned.`;
-      if (loan.startDate > today) return `${lender} said yes. It's yours from ${formatDate(loan.startDate)} and due back ${formatDate(loan.endDate)}.`;
-      return `You have it. It's due back ${formatDate(loan.endDate)}.`;
-    case "declined":
-      return `${lender} couldn't lend it for those dates.`;
-    case "returned":
-      return "Returned. Thanks for looking after it.";
-    default:
-      return loan.decidedAt === undefined
-        ? "You canceled this request."
-        : "This listing was taken down, so the request was canceled.";
-  }
 }
 
 /** Shown when `emailStatus` is failed (the server's view of every notification on the loan) and that email is still current. */
@@ -108,6 +87,7 @@ function CancelControl({ loan }: { loan: MyLoan }) {
 }
 
 function LoanCard({ loan, today }: { loan: MyLoan; today: string }) {
+  const zone = useTimeZone();
   const late = loan.status === "approved" ? daysOverdue(loan.endDate, today) : 0;
   const ledger = buildLedger(loan);
   const active = loan.status === "pending" || loan.status === "approved";
@@ -119,7 +99,7 @@ function LoanCard({ loan, today }: { loan: MyLoan; today: string }) {
       <div className="flex flex-col gap-2.5 border-b-2 border-rule-red px-5.5 pt-5 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="eyebrow">Asked {formatDate(new Date(loan.createdAt).toISOString().slice(0, 10))}</span>
+            <span className="eyebrow">Asked {formatDate(todayIn(zone, loan.createdAt))}</span>
             <h2 className="font-display text-2xl leading-[1.15] font-extrabold" style={{ fontStretch: "108%" }}>
               {loan.toolName}
               {loan.toolRemoved ? <span className="ml-2 text-base font-normal text-ink-3">(no longer listed)</span> : null}
@@ -135,7 +115,7 @@ function LoanCard({ loan, today }: { loan: MyLoan; today: string }) {
             {late > 0 ? <OverdueTag days={late} /> : null}
           </div>
         </div>
-        <p className="max-w-[64ch]">{nextStep(loan, today)}</p>
+        <p className="max-w-[64ch]">{borrowerNextStep(loan, today)}</p>
         {loan.emailStatus === "failed" ? <FailedEmail loan={loan} /> : null}
         {loan.status === "pending" ? <CancelControl loan={loan} /> : null}
         {loan.status === "declined" ? (
@@ -156,7 +136,7 @@ function LoanCard({ loan, today }: { loan: MyLoan; today: string }) {
             const look = TAG_LOOK[entry.tag];
             return (
               <li key={i} className="ledger-row" data-kind={entry.kind} data-status={entry.status}>
-                <span className="mono text-[13px] text-ink-2">{entry.at ? formatDateTime(entry.at) : "—"}</span>
+                <span className="mono text-[13px] text-ink-2">{entry.at ? formatDateTime(entry.at, zone) : "—"}</span>
                 <span>
                   <span
                     className="mono rounded px-1.5 py-px text-xs font-semibold tracking-[0.05em]"
@@ -207,7 +187,7 @@ function OverdueBanner({ loans, today }: { loans: MyLoan[]; today: string }) {
 function RequestList() {
   const loans = useQuery(api.loans.listMine);
   const now = useNow();
-  const today = todayUtc(now);
+  const today = todayIn(useTimeZone(), now);
   const [tab, setTab] = useState<Tab>("all");
   if (loans === undefined) return <LoadingState label="Loading your requests…" />;
   if (loans.length === 0) {

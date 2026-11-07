@@ -5,10 +5,11 @@ import { useMutation } from "convex/react";
 import { useId, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import { daysOverdue, formatDate, formatDateRange, todayUtc } from "@/lib/dates";
+import { daysOverdue, formatDate, formatDateRange, todayIn } from "@/lib/dates";
 import { categoryLabel, conditionLabel } from "@/lib/labels";
 import { shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
+import { useTimeZone } from "../TimeZone";
 import { Button, buttonClass } from "../ui/Button";
 import { OverdueTag, Stamp } from "../ui/Stamp";
 import { InlineError } from "../ui/States";
@@ -113,7 +114,7 @@ function DeleteControl({ listing, onDeleted }: { listing: Listing; onDeleted: (n
 export function ListingCard({ listing, onDeleted }: { listing: Listing; onDeleted: (name: string) => void }) {
   const [editing, setEditing] = useState(false);
   const update = useAction(useMutation(api.tools.update));
-  const today = todayUtc();
+  const today = todayIn(useTimeZone());
 
   async function save(values: ToolFormValues) {
     const ok = await update.run({ toolId: listing._id, ...values });
