@@ -201,14 +201,17 @@ development instance, with first and last names set:
 
 | User | Email | Role in the demo |
 |---|---|---|
-| Ben C. | `ben+clerk_test@example.com` | lender in the e2e run |
+| Ben C. | `ben+clerk_test@example.com` | lender in the e2e run; owns three seed tools |
 | Maya R. | `maya+clerk_test@example.com` | borrower in the e2e run |
 | Marcus D., Olivia P., Jake T. | `marcus+`, `olivia+`, `jake+clerk_test@example.com` | seed neighbors |
 
 `+clerk_test` addresses are Clerk test users: no real email is sent and the verification code is
-`424242`. The script then runs the internal `seed:neighbors`, which puts Marcus, Olivia and Jake
-and two tools each on the board (jigsaw, carpet cleaner, ladder, stand mixer, tent, tile
-cutter), linked to their Clerk ids. Running it again changes nothing.
+`424242`. The script then runs the internal `seed:neighbors`, linked to everyone's Clerk ids. It
+gives Ben the design's three listings (cordless drill, hedge trimmer, pressure washer) and puts
+Marcus, Olivia and Jake on the board with two tools each (jigsaw, carpet cleaner, ladder, stand
+mixer, tent, tile cutter). Running it again changes nothing: a tool is skipped when its owner
+already has one with that name (in any case, removed ones included), and tools the e2e run lists
+for Ben are never touched. Add `--prod` to seed the Convex production deployment instead.
 
 The app shows every name as first name and last initial. For that, the Clerk session token must
 carry the user's name (step 1).

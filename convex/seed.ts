@@ -7,10 +7,26 @@ import { addDaysUtc, todayUtc } from "./lib/dates";
 import { appError } from "./lib/errors";
 
 type SeedTool = Pick<Doc<"tools">, "name" | "category" | "condition" | "description">;
-type Neighbor = { key: "marcus" | "olivia" | "jake"; name: string; email: string; tools: SeedTool[] };
+type Neighbor = { key: "marcus" | "olivia" | "jake" | "ben"; name: string; email: string; tools: SeedTool[] };
 
-/** The board's demo neighbors. scripts/clerk-test-users.mjs creates the same people in Clerk. */
+/**
+ * The board's demo people and their listings (from the design canvas).
+ * scripts/clerk-test-users.mjs creates the same people in Clerk.
+ */
 export const NEIGHBORS: Neighbor[] = [
+  {
+    // Ben C. is also the e2e lender. The seed only adds these three by name; the tools, loans
+    // and emails the e2e run creates for him are never read or changed.
+    key: "ben",
+    name: "Ben Carter",
+    email: "ben+clerk_test@example.com",
+    tools: [
+      { name: "Cordless drill", category: "power_tools", condition: "good", description: "18V, two batteries and a charger. Bits are in the case." },
+      { name: "Hedge trimmer", category: "garden", condition: "good", description: "Corded, comes with a 50 ft extension cord." },
+      // The design gives this one no description.
+      { name: "Pressure washer", category: "cleaning", condition: "fair", description: "" },
+    ],
+  },
   {
     key: "marcus",
     name: "Marcus Davis",
@@ -111,36 +127,56 @@ async function retirePlaceholder(ctx: MutationCtx, from: Id<"users">, to: Id<"us
   if (kept === 0 && !asBorrower && !asLender) await ctx.db.delete(from);
 }
 
-async function ensureTool(ctx: MutationCtx, ownerId: Id<"users">, tool: SeedTool): Promise<Id<"tools">> {
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Adds the tool unless the owner already has one with that name (any case). With
+ * `includeRemoved`, a removed or deleted one counts too: re-running the seed must not
+ * duplicate a listing, nor bring back one an admin took down.
+ */
+async function ensureTool(
+  ctx: MutationCtx,
+  ownerId: Id<"users">,
+  tool: SeedTool,
+  { includeRemoved }: { includeRemoved: boolean },
+): Promise<{ toolId: Id<"tools">; added: boolean }> {
   const mine = await ctx.db
     .query("tools")
     .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
     .collect();
-  const found = mine.find((t) => t.name === tool.name && t.removedAt === undefined);
-  if (found) return found._id;
-  return await ctx.db.insert("tools", { ownerId, ...tool, status: "available", createdAt: Date.now() });
+  const found = mine.find((t) => sameName(t.name, tool.name) && (includeRemoved || t.removedAt === undefined));
+  if (found) return { toolId: found._id, added: false };
+  const toolId = await ctx.db.insert("tools", { ownerId, ...tool, status: "available", createdAt: Date.now() });
+  return { toolId, added: true };
 }
 
 const clerkIds = v.optional(
-  v.object({ marcus: v.optional(v.string()), olivia: v.optional(v.string()), jake: v.optional(v.string()) }),
+  v.object({
+    marcus: v.optional(v.string()),
+    olivia: v.optional(v.string()),
+    jake: v.optional(v.string()),
+    ben: v.optional(v.string()),
+  }),
 );
 
 /**
- * Puts Marcus D., Olivia P. and Jake T. and their tools on the board. Safe to run again:
- * people are matched by email and tools by owner + name.
+ * Puts Ben C., Marcus D., Olivia P. and Jake T. and their tools on the board. Safe to run
+ * again: people are matched by email, and a tool is skipped when its owner already has one
+ * with that name.
  */
 export const neighbors = internalMutation({
   args: { clerkIds },
   handler: async (ctx, args) => {
     let tools = 0;
+    let added = 0;
     for (const n of NEIGHBORS) {
       const ownerId = await upsertNeighbor(ctx, n, args.clerkIds?.[n.key]);
       for (const tool of n.tools) {
-        await ensureTool(ctx, ownerId, tool);
+        if ((await ensureTool(ctx, ownerId, tool, { includeRemoved: true })).added) added++;
         tools++;
       }
     }
-    return { neighbors: NEIGHBORS.length, tools };
+    return { people: NEIGHBORS.length, tools, added, skipped: tools - added };
   },
 });
 
@@ -169,7 +205,9 @@ export const overdueLoan = internalMutation({
     } else {
       const olivia = neighbor("olivia");
       lenderId = await upsertNeighbor(ctx, olivia);
-      toolId = await ensureTool(ctx, lenderId, olivia.tools.find((t) => t.name === "Stand mixer")!);
+      // A loan needs a live tool, so a removed stand mixer doesn't count here.
+      const mixer = olivia.tools.find((t) => t.name === "Stand mixer")!;
+      toolId = (await ensureTool(ctx, lenderId, mixer, { includeRemoved: false })).toolId;
     }
     const borrowerId = args.borrowerId ?? (await upsertNeighbor(ctx, neighbor("jake")));
     if (borrowerId === lenderId) throw appError("INVALID", "Borrower and lender must differ.");

@@ -1,7 +1,8 @@
 // Creates (or renames) LendLoop's US test users in your Clerk *development* instance with the
 // Backend API, then seeds the three demo neighbors and their tools in Convex.
 //
-//   node scripts/clerk-test-users.mjs
+//   node scripts/clerk-test-users.mjs          # seeds the dev deployment
+//   node scripts/clerk-test-users.mjs --prod   # seeds the Convex production deployment instead
 //
 // Reads CLERK_SECRET_KEY from .env.local and never prints it. Every address is
 // <name>+clerk_test@example.com: Clerk treats "+clerk_test" addresses as test users (no real
@@ -22,7 +23,7 @@ if (!key.startsWith("sk_test_")) {
 
 const API = "https://api.clerk.com/v1";
 const USERS = [
-  { key: "ben", first: "Ben", last: "Carter", role: "lender in the e2e run" },
+  { key: "ben", first: "Ben", last: "Carter", role: "lender in the e2e run, owns 3 seed tools" },
   { key: "maya", first: "Maya", last: "Rodriguez", role: "borrower in the e2e run" },
   { key: "marcus", first: "Marcus", last: "Davis", role: "seed neighbor" },
   { key: "olivia", first: "Olivia", last: "Parker", role: "seed neighbor" },
@@ -64,8 +65,11 @@ for (const u of USERS) {
   console.log(`${u.first} ${u.last.charAt(0)}. (${u.role}): ${action} ${user.id}`);
 }
 
-// Link the seed neighbors' Convex rows to their Clerk ids, so signing in as one of them later
+// Link the seeded people's Convex rows to their Clerk ids, so signing in as one of them later
 // reuses the seeded row (and its tools) instead of creating a second user.
-const args = JSON.stringify({ clerkIds: { marcus: ids.marcus, olivia: ids.olivia, jake: ids.jake } });
-const out = execSync(`npx convex run seed:neighbors "${args.replace(/"/g, '\\"')}"`, { encoding: "utf8" });
-console.log(`Convex seed: ${out.trim().split(/\r?\n/).pop()}`);
+const prod = process.argv.includes("--prod");
+const args = JSON.stringify({ clerkIds: { ben: ids.ben, marcus: ids.marcus, olivia: ids.olivia, jake: ids.jake } });
+const out = execSync(`npx convex run${prod ? " --prod" : ""} seed:neighbors "${args.replace(/"/g, '\\"')}"`, {
+  encoding: "utf8",
+});
+console.log(`Convex seed (${prod ? "production" : "dev"}): ${out.trim().replace(/\s+/g, " ")}`);
