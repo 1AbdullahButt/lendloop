@@ -134,3 +134,11 @@ One line each: decision — reason. Agents add to this as they build; the README
 - The seed never re-links an existing signed-in row to a new Clerk id — a row's `clerkId` only changes from a `seed_` placeholder to a real id. If a test user is deleted and re-created in Clerk, their next sign-in gets a new, empty row; that is safer than moving someone's history onto a different Clerk account.
 - Known dev-only seed edges, left as is: if `seed:overdueLoan {}` runs before the neighbors sign in, the placeholders keep that loan and stay as second rows; retiring a placeholder drops a Trusted badge that was set on it.
 - `scripts/clerk-test-users.mjs` refuses any key but `sk_test_` — it creates users, so it must never touch a production Clerk instance.
+
+### Deployment (Vercel + Convex production)
+- The live app keeps the Clerk development instance: a Clerk production instance needs a domain we own, and `*.vercel.app` can't be used. Trade-off: the "Development mode" label, a console warning and Clerk's development limits.
+- Convex production has the same five env vars as dev, copied value-for-value by a script that pipes each value to `npx convex env set --prod` on stdin, so no value appears in a command line, log or chat. Same HMAC secrets because one n8n serves both deployments; production would get its own.
+- Convex functions are deployed with `npx convex deploy`, outside the Vercel build: no `CONVEX_DEPLOY_KEY` lives in Vercel. Cost: a `convex/` change must be deployed before the frontend that uses it.
+- Vercel env vars are set for Production only: a preview deployment fails its build instead of quietly pointing a branch at production data.
+- `.vercelignore` lists env files, `n8n/.env`, `qa/.auth` and local-only folders, because `vercel deploy` uploads the working folder, not the Git tree, and its default ignore list isn't a contract.
+- The local n8n's `CONVEX_SITE_URL` stays on the dev deployment so `npm run test:kickoff` keeps working; overdue reminders for the live site need it switched to production.

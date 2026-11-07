@@ -1,0 +1,13 @@
+# `vercel deploy` from the CLI uploads the working folder, not the Git tree, so keep
+# secrets and local-only files out of the upload explicitly. Vercel's env vars supply the build.
+.env*
+n8n/.env
+qa/.auth
+.codex
+AGENTS.md
+.claude
+lendloop-design
+node_modules
+.next
+test-results
+playwright-report

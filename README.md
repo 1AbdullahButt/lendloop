@@ -18,6 +18,10 @@ HMAC-signed webhooks in both directions. The stack is Next.js 15 (App Router), C
 
 Roles are stored only in the Convex `users` table. See [Admin bootstrap](#5-admin-bootstrap).
 
+**Live demo:** https://lendloop-mu.vercel.app, running on Vercel with a Convex production
+deployment and the Clerk **development** instance. Emails only go out while n8n is running on
+my PC: see [Deployment](#deployment).
+
 ---
 
 ## Architecture
@@ -256,6 +260,57 @@ execution-data pruning (`EXECUTIONS_DATA_MAX_AGE=168`).
 
 ---
 
+## Deployment
+
+| Piece | Runs on | Deployed with |
+|---|---|---|
+| Next.js app | Vercel project `lendloop`, https://lendloop-mu.vercel.app | `vercel deploy --prod` |
+| Convex functions and data | The Convex project's production deployment | `npx convex deploy` (not part of the Vercel build) |
+| n8n and the tunnel | Docker on my PC | `docker compose up -d` (see [step 4](#4-n8n-via-docker-compose)) |
+
+- **Vercel env vars (Production only):** `NEXT_PUBLIC_CONVEX_URL` (the production deployment's
+  `.convex.cloud` URL), `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` (stored as a
+  Secret). Preview deployments get none, so a branch preview fails its build instead of writing to
+  production data.
+- **Convex production env vars:** the same five as dev (`ADMIN_EMAILS`, `CLERK_JWT_ISSUER_DOMAIN`,
+  `CONVEX_TO_N8N_SECRET`, `N8N_TO_CONVEX_SECRET`, `N8N_REQUEST_WEBHOOK_URL`), set with
+  `npx convex env set --prod NAME`, which reads the value from stdin. Set them before the first
+  `npx convex deploy`, because `convex/auth.config.ts` needs `CLERK_JWT_ISSUER_DOMAIN` at deploy time.
+- **Order:** when a change touches `convex/`, run `npx convex deploy` before deploying the frontend,
+  so the app never calls a function that isn't deployed yet. For CI I'd set the Vercel build command
+  to `npx convex deploy --cmd 'npm run build'` with a production `CONVEX_DEPLOY_KEY`.
+- **Uploads:** `vercel deploy` uploads the working folder, not the Git tree. `.vercelignore` keeps
+  env files, `n8n/.env`, `qa/.auth` and local-only folders out of the upload.
+
+### Clerk development instance
+
+The live app still uses the Clerk development instance (`pk_test_` and `sk_test_` keys), on
+purpose for now: a Clerk production instance needs a domain I own, and a `*.vercel.app` domain
+can't be used. As a result, the sign-in page shows Clerk's "Development mode" label, the browser
+console warns about development keys, and Clerk's development usage limits apply. The
+`+clerk_test` users from [step 6](#6-test-users-and-demo-data) can sign in on the live site too.
+To move to production: create a Clerk production instance on a custom domain, put its keys in
+Vercel, and set its issuer as `CLERK_JWT_ISSUER_DOMAIN` on the Convex production deployment.
+
+### What needs my PC to be on
+
+Browsing, listing, requesting, approving, returning and everything in `/admin` run on Vercel and
+Convex, and work with my PC off. Only the n8n side needs it:
+
+- **Request emails** (new request, approved, declined, returned, canceled) go from Convex through
+  the cloudflared tunnel to n8n. With the PC off, Convex retries after 30 s, 2 min and 10 min and
+  then marks the email `failed`. The borrower sees it on My requests, and an admin can resend it
+  from Automated emails once n8n is back.
+- **Overdue reminders** come from n8n's daily 09:00 workflow, which only runs while n8n is up. It
+  calls the deployment in `CONVEX_SITE_URL` (`n8n/.env`), which points at the **dev** deployment
+  for local testing. For the live site to get reminders, set it to the production deployment's
+  `.convex.site` URL and recreate the n8n container.
+- **Tunnel URL:** a quick tunnel gets a new URL each time it restarts. Then set
+  `N8N_REQUEST_WEBHOOK_URL` again on both deployments (`npx convex env set --prod ...` for
+  production).
+
+---
+
 ## Testing
 
 ```bash
@@ -424,8 +479,10 @@ The reasoning behind each choice is recorded one line at a time in
   provider credential, and drop `fs` from `NODE_FUNCTION_ALLOW_BUILTIN`.
 - **Hosting:** use a named Cloudflare tunnel or a real domain (or n8n Cloud) instead of a quick
   tunnel. Run n8n with external task runners and queue mode (workers and Redis).
-- **Production instances:** use a Convex production deployment, a Clerk production instance and
-  separate secrets per environment.
+- **Production instances:** the live demo already uses a Convex production deployment, but it
+  shares the Clerk development instance and the HMAC secrets with dev. Use a Clerk production
+  instance on a custom domain, separate secrets per environment and a second n8n (or an
+  environment field in the payload), so dev and production never share a webhook.
 - **User sync:** add Clerk webhooks (signed with Svix) to sync and delete users server-side,
   instead of relying on `users.ensure` from the client.
 - **Scale:** add pagination and indexes such as a `by_status` index and paginated admin lists,
