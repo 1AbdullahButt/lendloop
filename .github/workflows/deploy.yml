@@ -1,0 +1,40 @@
+# Deploys main to Vercel production on every push. Vercel's own Git integration can't be used:
+# the Vercel account's GitHub login is a different GitHub user, which can't see this repo.
+# The runner only uploads the checked-out Git tree; Vercel builds it with its own env vars, so
+# no app secret is ever on the runner. Convex functions are deployed separately (README, Deployment).
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Check configuration
+        run: |
+          missing=""
+          [ -n "$VERCEL_TOKEN" ] || missing="$missing VERCEL_TOKEN(secret)"
+          [ -n "$VERCEL_ORG_ID" ] || missing="$missing VERCEL_ORG_ID(variable)"
+          [ -n "$VERCEL_PROJECT_ID" ] || missing="$missing VERCEL_PROJECT_ID(variable)"
+          if [ -n "$missing" ]; then echo "::error::Missing repo settings:$missing"; exit 1; fi
+      - name: Deploy to production
+        run: npx --yes vercel@65.5.0 deploy --prod --yes --token "$VERCEL_TOKEN"

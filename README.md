@@ -264,7 +264,7 @@ execution-data pruning (`EXECUTIONS_DATA_MAX_AGE=168`).
 
 | Piece | Runs on | Deployed with |
 |---|---|---|
-| Next.js app | Vercel project `lendloop`, https://lendloop-mu.vercel.app | `vercel deploy --prod` |
+| Next.js app | Vercel project `lendloop`, https://lendloop-mu.vercel.app | GitHub Action on every push to `main`, or `vercel deploy --prod` by hand |
 | Convex functions and data | The Convex project's production deployment | `npx convex deploy` (not part of the Vercel build) |
 | n8n and the tunnel | Docker on my PC | `docker compose up -d` (see [step 4](#4-n8n-via-docker-compose)) |
 
@@ -279,8 +279,14 @@ execution-data pruning (`EXECUTIONS_DATA_MAX_AGE=168`).
 - **Order:** when a change touches `convex/`, run `npx convex deploy` before deploying the frontend,
   so the app never calls a function that isn't deployed yet. For CI I'd set the Vercel build command
   to `npx convex deploy --cmd 'npm run build'` with a production `CONVEX_DEPLOY_KEY`.
-- **Uploads:** `vercel deploy` uploads the working folder, not the Git tree. `.vercelignore` keeps
-  env files, `n8n/.env`, `qa/.auth` and local-only folders out of the upload.
+- **Auto-deploy:** `.github/workflows/deploy.yml` runs `vercel deploy --prod` on every push to
+  `main` (or by hand from the Actions tab). Vercel's own Git integration isn't connected, because
+  the Vercel account's GitHub login is a different GitHub user. The Action needs a `VERCEL_TOKEN`
+  repo secret (a Vercel token with an expiry date) and the `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`
+  repo variables (ids from `.vercel/project.json`). Vercel builds with its own env vars, so no app
+  secret is on the runner.
+- **Uploads:** a manual `vercel deploy` uploads the working folder, not the Git tree. `.vercelignore`
+  keeps env files, `n8n/.env`, `qa/.auth` and local-only folders out of the upload.
 
 ### Clerk development instance
 
@@ -521,6 +527,7 @@ convex/
 n8n/workflows/           request-notification, overdue-reminders, error-handler (exported JSON)
 n8n/scripts/             signed-request.mjs (manual signed, forged and stale requests)
 docker-compose.yml       local n8n
+.github/workflows/       deploy.yml (Vercel production deploy on push to main)
 tests/acceptance/        locked acceptance tests + CONTRACT.md
 docs/                    ARCHITECTURE.md, DECISIONS.md
 qa/                      QA report and test disputes
