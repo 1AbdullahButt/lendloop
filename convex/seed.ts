@@ -7,7 +7,12 @@ import { addDaysUtc, todayUtc } from "./lib/dates";
 import { appError } from "./lib/errors";
 
 type SeedTool = Pick<Doc<"tools">, "name" | "category" | "condition" | "description">;
-type Neighbor = { key: "marcus" | "olivia" | "jake" | "ben"; name: string; email: string; tools: SeedTool[] };
+/**
+ * `emails[0]` is the account's sign-in address (primary in Clerk); the `+clerk_test` one stays on
+ * the account for the e2e run. A row may carry either, because `users.ensure` copies whichever is
+ * primary at sign-in, so people are matched on all of them.
+ */
+type Neighbor = { key: "marcus" | "olivia" | "jake" | "ben"; name: string; emails: string[]; tools: SeedTool[] };
 
 /**
  * The board's demo people and their listings (from the design canvas).
@@ -19,7 +24,7 @@ export const NEIGHBORS: Neighbor[] = [
     // and emails the e2e run creates for him are never read or changed.
     key: "ben",
     name: "Ben Carter",
-    email: "ben+clerk_test@example.com",
+    emails: ["ben_test@example.com", "ben+clerk_test@example.com"],
     tools: [
       { name: "Cordless drill", category: "power_tools", condition: "good", description: "18V, two batteries and a charger. Bits are in the case." },
       { name: "Hedge trimmer", category: "garden", condition: "good", description: "Corded, comes with a 50 ft extension cord." },
@@ -30,7 +35,7 @@ export const NEIGHBORS: Neighbor[] = [
   {
     key: "marcus",
     name: "Marcus Davis",
-    email: "marcus+clerk_test@example.com",
+    emails: ["marcus_test@example.com", "marcus+clerk_test@example.com"],
     tools: [
       { name: "Jigsaw", category: "power_tools", condition: "fair", description: "Comes with three wood blades." },
       { name: "Carpet cleaner", category: "cleaning", condition: "fair", description: "Bring your own cleaning solution." },
@@ -39,7 +44,7 @@ export const NEIGHBORS: Neighbor[] = [
   {
     key: "olivia",
     name: "Olivia Parker",
-    email: "olivia+clerk_test@example.com",
+    emails: ["olivia_test@example.com", "olivia+clerk_test@example.com"],
     tools: [
       { name: "Ladder, 6 ft", category: "hand_tools", condition: "worn", description: "Aluminum step ladder. One rung has a dent, still sturdy." },
       { name: "Stand mixer", category: "kitchen", condition: "good", description: "5 qt bowl, whisk and dough hook." },
@@ -48,7 +53,7 @@ export const NEIGHBORS: Neighbor[] = [
   {
     key: "jake",
     name: "Jake Thompson",
-    email: "jake+clerk_test@example.com",
+    emails: ["jake_test@example.com", "jake+clerk_test@example.com"],
     tools: [
       { name: "Two-person tent", category: "camping", condition: "new", description: "Sets up in ten minutes. Rain fly included." },
       { name: "Tile cutter", category: "other", condition: "good", description: "Manual cutter, up to 24 in tiles." },
@@ -67,7 +72,7 @@ async function upsertNeighbor(ctx: MutationCtx, n: Neighbor, clerkId?: string): 
   const placeholder = `seed_${n.key}`;
   const all = await ctx.db.query("users").collect();
   const signedIn = clerkId ? all.find((u) => u.clerkId === clerkId) : undefined;
-  const byEmail = all.filter((u) => u.email === n.email);
+  const byEmail = all.filter((u) => n.emails.includes(u.email.toLowerCase()));
   // A real (signed-in) row beats the placeholder, so later seed runs land on the real person.
   const existing =
     byEmail.find((u) => !u.clerkId.startsWith("seed_")) ??
@@ -83,7 +88,7 @@ async function upsertNeighbor(ctx: MutationCtx, n: Neighbor, clerkId?: string): 
   if (existing) {
     await ctx.db.patch(existing._id, {
       name: n.name,
-      email: n.email,
+      ...(n.emails.includes(existing.email.toLowerCase()) ? {} : { email: n.emails[0] }),
       ...(clerkId && existing.clerkId !== clerkId ? { clerkId } : {}),
     });
     return existing._id;
@@ -91,7 +96,7 @@ async function upsertNeighbor(ctx: MutationCtx, n: Neighbor, clerkId?: string): 
   return await ctx.db.insert("users", {
     clerkId: clerkId ?? placeholder,
     name: n.name,
-    email: n.email,
+    email: n.emails[0],
     role: "user",
     trustedLender: false,
   });

@@ -68,6 +68,24 @@ describe("seed:neighbors", () => {
     });
   });
 
+  test("after a demo account's primary email changes, the seed still finds the person: no duplicates", async () => {
+    const t = newTest();
+    await t.mutation(internal.seed.neighbors, { clerkIds: { olivia: OLIVIA.subject } });
+    // Olivia now signs in with her simpler primary address; users.ensure copies it to her row.
+    const olivia = await signIn(t, { ...OLIVIA, email: "olivia_test@example.com" });
+    const before = await rows(t);
+    expect(before.users.find((u) => u._id === olivia.id)?.email).toBe("olivia_test@example.com");
+
+    // Both run without Clerk ids, as `npx convex run seed:neighbors` and the e2e run's overdue step do.
+    await t.mutation(internal.seed.neighbors, {});
+    const { loanId } = await t.mutation(internal.seed.overdueLoan, {});
+    const after = await rows(t);
+    expect(after.users).toHaveLength(before.users.length);
+    expect(after.tools).toHaveLength(before.tools.length);
+    expect(after.users.filter((u) => u.name === "Olivia Parker")).toHaveLength(1);
+    expect((await t.run((ctx) => ctx.db.get(loanId)))?.lenderId).toBe(olivia.id);
+  });
+
   test("a seed tool an admin removed stays removed: re-running neither restores nor duplicates it", async () => {
     const t = newTest();
     const admin = await signIn(t, ADMIN);

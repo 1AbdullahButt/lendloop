@@ -213,6 +213,22 @@ mixer, tent, tile cutter). Running it again changes nothing: a tool is skipped w
 already has one with that name (in any case, removed ones included), and tools the e2e run lists
 for Ben are never touched. Add `--prod` to seed the Convex production deployment instead.
 
+**Simpler demo sign-ins.** To sign in by hand with a password instead of an email code, run this
+in an interactive terminal (PowerShell or Windows Terminal):
+
+```bash
+node scripts/clerk-demo-logins.mjs
+```
+
+It adds `ben_test@`, `maya_test@`, `marcus_test@`, `olivia_test@` and `jake_test@example.com` to
+the matching accounts, verified and primary, and sets one password you type for all five. Input
+is hidden, and the password is sent only to Clerk: it's never printed, stored in a file or kept
+in an env var. The `+clerk_test` addresses stay on the accounts, so the e2e run keeps signing in
+by them. Clerk enforces its own password rules (this instance: at least 15 characters, and not a
+known breached password). `--check` shows each account's state without changing anything. The
+seed matches people on either address, because `users.ensure` copies the primary address into
+the Convex row at sign-in.
+
 The app shows every name as first name and last initial. For that, the Clerk session token must
 carry the user's name (step 1).
 

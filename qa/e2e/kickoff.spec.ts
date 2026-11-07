@@ -69,9 +69,12 @@ async function signedIn(browser: Browser, role: string, emailAddress: string): P
   await page.goto("/"); // a public page that loads Clerk
   await clerk.signIn({ page, emailAddress });
   // Compare inside the page and return only a boolean, so no email reaches the test output.
+  // Any address on the account counts: the demo accounts sign in by a simpler primary address
+  // (scripts/clerk-demo-logins.mjs), and the +clerk_test one this test uses stays on the account.
   const isExpectedUser = await page.evaluate(
     (expected) =>
-      window.Clerk?.user?.primaryEmailAddress?.emailAddress?.toLowerCase() === expected.toLowerCase(),
+      window.Clerk?.user?.emailAddresses?.some((e) => e.emailAddress.toLowerCase() === expected.toLowerCase()) ??
+      false,
     emailAddress,
   );
   expect(isExpectedUser, `${role} context is signed in as the ${role} account`).toBe(true);
