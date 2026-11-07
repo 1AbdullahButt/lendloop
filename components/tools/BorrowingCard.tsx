@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { formatDateRange, todayIn } from "@/lib/dates";
 import { conditionLabel } from "@/lib/labels";
-import { borrowerNextStep, holderLine } from "@/lib/loanText";
+import { borrowerNextStep, holderLine, myLoanOn, pendingLine } from "@/lib/loanText";
 import { firstName, shortName } from "@/lib/names";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { useNow } from "@/lib/useNow";
@@ -63,7 +63,13 @@ export function BorrowingCard({ tool, open, onClose, onDone }: Props) {
     ? myLoans.find((l) => l.startDate === sentHere.startDate && l.endDate === sentHere.endDate)
     : undefined;
   const sentStatus = sentLoan?.status ?? "pending";
-  const holding = myLoans.find((l) => l.status === "approved");
+  // The loan I hold here, else my newest pending request: the status line and tag follow it.
+  const myLoan = tool ? myLoanOn(mine, tool._id) : undefined;
+  const myLine = !myLoan
+    ? null
+    : myLoan.status === "approved"
+      ? holderLine(myLoan, today)
+      : pendingLine(myLoan, myLoan.lenderName);
 
   useEffect(() => {
     if (!open) return;
@@ -153,8 +159,8 @@ export function BorrowingCard({ tool, open, onClose, onDone }: Props) {
               <span className="text-sm text-[#E6E0C2]">
                 {tool.isMine
                   ? "This one is yours."
-                  : holding
-                    ? holderLine(holding, today)
+                  : myLine
+                    ? myLine
                     : tool.status === "available"
                     ? "Available now."
                     : `Out on loan right now. ${firstName(tool.ownerName)} can still approve dates that don't overlap.`}
@@ -207,7 +213,7 @@ export function BorrowingCard({ tool, open, onClose, onDone }: Props) {
                 onSent={(range) => setSent({ toolId: tool._id, ...range })}
               />
             )}
-            <span className="sr-only">Status: {holding ? holderLine(holding, today) : toolAvailability(tool).label}</span>
+            <span className="sr-only">Status: {myLine ?? toolAvailability(tool).label}</span>
           </>
         )}
         {modal ? <FocusGuard onFocus={() => focusEdge("first")} /> : null}

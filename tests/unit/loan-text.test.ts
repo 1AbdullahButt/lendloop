@@ -1,7 +1,7 @@
 // The borrowing card's text for the viewer's own loan: the status line says the tool is with
 // them, and the sent request's message follows the loan's live status.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { borrowerNextStep, holderLine } from "../../lib/loanText";
+import { borrowerNextStep, holderLine, myLoanOn, myTagLabel, pendingLine } from "../../lib/loanText";
 
 const TODAY = "2026-11-07";
 const loan = (status: string, startDate = "2026-11-07", endDate = "2026-11-09") => ({
@@ -27,6 +27,34 @@ describe("holderLine", () => {
   });
   test("past the end date it says when it was due", () => {
     expect(holderLine(loan("approved", "2026-11-03", "2026-11-05"), TODAY)).toBe("With you · was due Nov 5");
+  });
+});
+
+describe("my own loan on a tool, for Browse", () => {
+  const drill = (status: string, startDate: string, endDate: string) => ({ toolId: "drill", status, startDate, endDate });
+  // listMine order: newest first.
+  const mine = [
+    drill("pending", "2026-11-12", "2026-11-14"),
+    drill("returned", "2026-11-01", "2026-11-03"),
+    drill("pending", "2026-11-09", "2026-11-10"),
+    { toolId: "saw", status: "approved", startDate: "2026-11-07", endDate: "2026-11-09" },
+  ];
+
+  test("prefers the loan I hold, else my newest pending request, else nothing", () => {
+    expect(myLoanOn(mine, "saw")?.status).toBe("approved");
+    expect(myLoanOn(mine, "drill")).toMatchObject({ status: "pending", startDate: "2026-11-12" });
+    expect(myLoanOn(mine, "ladder")).toBeUndefined();
+    expect(myLoanOn(undefined, "drill")).toBeUndefined();
+  });
+
+  test("the card's status line and the grid tag agree with My requests", () => {
+    expect(pendingLine(drill("pending", "2026-11-09", "2026-11-10"), "Ben Carter")).toBe(
+      "You asked for Nov 9–10 · waiting for Ben",
+    );
+    expect(myTagLabel({ status: "pending", startDate: "2026-11-09" }, TODAY)).toBe("You asked");
+    expect(myTagLabel({ status: "approved", startDate: "2026-11-04" }, TODAY)).toBe("With you");
+    expect(myTagLabel({ status: "approved", startDate: "2026-11-10" }, TODAY)).toBe("Booked for you");
+    expect(myTagLabel(undefined, TODAY)).toBeNull();
   });
 });
 

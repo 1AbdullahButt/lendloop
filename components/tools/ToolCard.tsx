@@ -5,18 +5,38 @@ import { api } from "@/convex/_generated/api";
 import { categoryLabel, conditionLabel } from "@/lib/labels";
 import { shortName } from "@/lib/names";
 import { TrustedBadge } from "../ui/Badges";
+import { myTagLabel } from "@/lib/loanText";
 
 export type ToolItem = FunctionReturnType<typeof api.tools.list>[number];
 
-export function toolAvailability(tool: ToolItem): { label: string; color: string } {
+/** The tag's status. `mine` is the viewer's own loan on this tool (lib/loanText myLoanOn). */
+export function toolAvailability(
+  tool: ToolItem,
+  mine?: { status: string; startDate: string },
+  today = "",
+): { label: string; color: string } {
   if (tool.isMine) return { label: "Your tool", color: "#2E4257" };
+  const own = myTagLabel(mine, today);
+  if (own) return { label: own, color: own === "You asked" ? "#2E4257" : "#145233" };
   if (tool.status === "available") return { label: "Available now", color: "#145233" };
   return { label: "Out on loan", color: "#6B4E00" };
 }
 
 /** One luggage tag in the Browse grid; pressing it opens the borrowing card. */
-export function ToolCard({ tool, selected, onPick }: { tool: ToolItem; selected: boolean; onPick: () => void }) {
-  const status = toolAvailability(tool);
+export function ToolCard({
+  tool,
+  selected,
+  onPick,
+  mine,
+  today,
+}: {
+  tool: ToolItem;
+  selected: boolean;
+  onPick: () => void;
+  mine?: { status: string; startDate: string };
+  today?: string;
+}) {
+  const status = toolAvailability(tool, mine, today);
   return (
     <button type="button" className="tag-card flex min-h-[164px] flex-col gap-2" aria-pressed={selected} onClick={onPick}>
       <span className="tag-hole" aria-hidden="true" />

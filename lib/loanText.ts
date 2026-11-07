@@ -32,6 +32,29 @@ export function borrowerNextStep(loan: BorrowerLoan, today: string): string {
   }
 }
 
+type MyLoanLite = { toolId: string; status: string; startDate: string; endDate: string };
+
+/**
+ * The viewer's own loan that matters on Browse for one tool: the one they hold (approved),
+ * otherwise their newest pending request. `loans` is listMine's order, newest first.
+ */
+export function myLoanOn<T extends MyLoanLite>(loans: readonly T[] | undefined, toolId: string): T | undefined {
+  const mine = (loans ?? []).filter((l) => l.toolId === toolId);
+  return mine.find((l) => l.status === "approved") ?? mine.find((l) => l.status === "pending");
+}
+
+/** Status line for a tool the viewer has asked for and is waiting on. */
+export function pendingLine(loan: { startDate: string; endDate: string }, lenderName: string): string {
+  return `You asked for ${formatDateRange(loan.startDate, loan.endDate)} · waiting for ${firstName(lenderName)}`;
+}
+
+/** The Browse tag for the viewer's own loan on a tool, or null when they have none there. */
+export function myTagLabel(loan: { status: string; startDate: string } | undefined, today: string): string | null {
+  if (loan?.status === "approved") return loan.startDate > today ? "Booked for you" : "With you";
+  if (loan?.status === "pending") return "You asked";
+  return null;
+}
+
 /**
  * The borrowing card's status line when the viewer holds the approved loan, instead of
  * "Out on loan right now", which reads as if someone else has it.

@@ -5,7 +5,10 @@ import { useQuery } from "convex/react";
 import { useCallback, useId, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { todayIn } from "@/lib/dates";
 import { CATEGORIES, categoryLabel, type Category } from "@/lib/labels";
+import { myLoanOn } from "@/lib/loanText";
+import { useTimeZone } from "../TimeZone";
 import { buttonClass } from "../ui/Button";
 import { QueryBoundary } from "../ui/QueryBoundary";
 import { EmptyState, LoadingState } from "../ui/States";
@@ -28,6 +31,9 @@ function BrowseBody({
   onClearSearch: () => void;
 }) {
   const tools = useQuery(api.tools.list, category ? { category } : {});
+  // My own loans, so a tag says "With you" or "You asked" instead of the generic status.
+  const mine = useQuery(api.loans.listMine);
+  const today = todayIn(useTimeZone());
   if (tools === undefined) return <LoadingState label="Loading tools…" />;
   const q = query.trim().toLowerCase();
   const shown = q ? tools.filter((t) => t.name.toLowerCase().includes(q)) : tools;
@@ -64,7 +70,13 @@ function BrowseBody({
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(240px,100%),1fr))] gap-4">
           {shown.map((tool) => (
             <li key={tool._id} className="flex">
-              <ToolCard tool={tool} selected={selection?.id === tool._id} onPick={() => onSelect(tool)} />
+              <ToolCard
+                tool={tool}
+                selected={selection?.id === tool._id}
+                onPick={() => onSelect(tool)}
+                mine={myLoanOn(mine, tool._id)}
+                today={today}
+              />
             </li>
           ))}
         </ul>
