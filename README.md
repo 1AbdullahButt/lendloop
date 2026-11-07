@@ -18,7 +18,7 @@ HMAC-signed webhooks in both directions. The stack is Next.js 15 (App Router), C
 
 Roles are stored only in the Convex `users` table. See [Admin bootstrap](#5-admin-bootstrap).
 
-**Live demo:** https://lendloop-mu.vercel.app, running on Vercel with a Convex production
+**Live demo:** https://lendloop-demo.vercel.app, running on Vercel with a Convex production
 deployment and the Clerk **development** instance. Emails only go out while n8n is running on
 my PC: see [Deployment](#deployment).
 
@@ -264,7 +264,7 @@ execution-data pruning (`EXECUTIONS_DATA_MAX_AGE=168`).
 
 | Piece | Runs on | Deployed with |
 |---|---|---|
-| Next.js app | Vercel project `lendloop`, https://lendloop-mu.vercel.app | GitHub Action on every push to `main`, or `vercel deploy --prod` by hand |
+| Next.js app | Vercel project `lendloop`, https://lendloop-demo.vercel.app | GitHub Action on every push to `main`, or `vercel deploy --prod` by hand |
 | Convex functions and data | The Convex project's production deployment | `npx convex deploy` (not part of the Vercel build) |
 | n8n and the tunnel | Docker on my PC | `docker compose up -d` (see [step 4](#4-n8n-via-docker-compose)) |
 
