@@ -1,38 +1,59 @@
 import type { ReactNode } from "react";
 
-/** Small accessible table wrapper used by every admin section. */
-export function AdminTable({ caption, headers, children }: { caption: string; headers: string[]; children: ReactNode }) {
+/** One admin section: heading, optional note, then its table. */
+export function AdminSection({
+  id,
+  title,
+  note,
+  children,
+}: {
+  id: string;
+  title: string;
+  note?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
-      <table className="min-w-full text-left text-sm">
-        <caption className="sr-only">{caption}</caption>
-        <thead className="bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
-          <tr>
-            {headers.map((h) => (
-              <th key={h} scope="col" className="px-3 py-2 font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-stone-100">{children}</tbody>
-      </table>
-    </div>
+    <section id={id} aria-labelledby={`${id}-title`} className="flex scroll-mt-6 flex-col gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h2 id={`${id}-title`} className="font-display text-[26px] font-extrabold">
+          {title}
+        </h2>
+        {note ? <span className="max-w-[62ch] text-sm text-ink-2">{note}</span> : null}
+      </div>
+      {children}
+    </section>
   );
 }
 
-export function Cell({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <td className={`px-3 py-2 align-top ${className}`}>{children}</td>;
-}
-
-export function AdminSection({ title, children }: { title: string; children: ReactNode }) {
-  const id = `admin-${title.toLowerCase().replace(/\s+/g, "-")}`;
+export function AdminTable({
+  caption,
+  headers,
+  minWidth = 720,
+  children,
+}: {
+  caption: string;
+  headers: Array<string | { label: string; right?: boolean }>;
+  minWidth?: number;
+  children: ReactNode;
+}) {
   return (
-    <section aria-labelledby={id} className="mb-10">
-      <h2 id={id} className="mb-3 text-lg font-semibold">
-        {title}
-      </h2>
-      {children}
-    </section>
+    <div className="tbl">
+      <table style={{ minWidth }}>
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr>
+            {headers.map((h) => {
+              const { label, right } = typeof h === "string" ? { label: h, right: false } : h;
+              return (
+                <th key={label || "actions"} scope="col" className={right ? "text-right" : undefined}>
+                  {label}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
   );
 }

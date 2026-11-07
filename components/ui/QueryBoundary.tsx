@@ -8,6 +8,8 @@ type Props = {
   children: ReactNode;
   /** Shown instead of the generic error when the server answers FORBIDDEN. */
   forbidden?: ReactNode;
+  /** Replaces the error box entirely (e.g. `null` in the header, where it would not fit). */
+  fallback?: ReactNode;
 };
 
 type State = { error: unknown; hasError: boolean };
@@ -29,6 +31,7 @@ export class QueryBoundary extends Component<Props, State> {
     if (!this.state.hasError) return this.props.children;
     const { error } = this.state;
     if (errorCode(error) === "FORBIDDEN" && this.props.forbidden) return this.props.forbidden;
+    if (this.props.fallback !== undefined) return this.props.fallback;
     return <ErrorState message={errorMessage(error)} onRetry={this.reset} />;
   }
 }

@@ -39,14 +39,14 @@ are in `docs/DECISIONS.md`.
 | `lib/validation.ts` | Trimming and length checks for tool name (1–80) and description (≤500). |
 | `lib/events.ts` | `queueLoanEvent`: idempotent insert of a `queued` event plus `scheduler.runAfter(0, deliver)`. Also builds and parses the key `<loanId>:<type>`. |
 | `lib/removal.ts` | `softRemoveTool`, shared by owner removal and admin removal. Sets `removedAt` and cancels pending loans (setting `decidedAt`), queuing one event each. |
-| `lib/views.ts` | Per-request lookups for names and badges (never emails), plus `loanActivity` (up to 10 events, newest first, no keys or errors). |
+| `lib/views.ts` | Per-request lookups for names and badges (never emails), plus `loanAutomation`: up to 10 events newest first, each with `kind`, `status`, times and, for notifications, `type` (e.g. `loan.approved`), and the loan's `emailStatus` (failed > queued > sent > null over all its notifications). No keys or error text. `loanActivity` returns just the events. |
 | `tools.ts` | Public tool list, signed-in browse, my listings, create, update and remove. |
 | `loans.ts` | Request, cancel, approve, decline, mark returned, my requests and incoming requests. |
 | `users.ts` | `ensure`, `me` and the internal `setRole`. |
-| `admin.ts` | Admin lists and moderation. Every handler starts with `requireAdmin`. |
+| `admin.ts` | Admin lists, moderation and resending a failed notification. Every handler starts with `requireAdmin`. |
 | `automation.ts` | Internal only: outbound delivery with retries, the overdue list and the reminder write-back. |
 | `http.ts` | Signed n8n → Convex routes. |
-| `seed.ts` | Internal demo fixture (`overdueLoan`). |
+| `seed.ts` | Internal demo fixtures: `neighbors` (Marcus D., Olivia P., Jake T. and their tools) and `overdueLoan`. |
 | `auth.config.ts` | Trusts Clerk JWTs from `CLERK_JWT_ISSUER_DOMAIN` with `applicationID: "convex"`. |
 
 ## 3. Function access table
@@ -67,7 +67,7 @@ callable from clients).
 | `loans.approve` | mutation | requireUser | Lender only, `pending` → `approved`. `CONFLICT` on inclusive overlap with an approved loan. Tool becomes `on_loan`. |
 | `loans.decline` | mutation | requireUser | Lender only, `pending` → `declined`. |
 | `loans.markReturned` | mutation | requireUser | Lender only, `approved` → `returned`. The tool becomes `available` unless another approved loan remains. |
-| `loans.listMine` | query | requireUser | My requests, with the lender's name and badge and `activity`. |
+| `loans.listMine` | query | requireUser | My requests, with the lender's name and badge, `activity` (notifications carry `type`) and `emailStatus`. |
 | `loans.listIncoming` | query | requireUser | Requests on my tools, with the borrower's name and badge and `activity`. |
 | `users.ensure` | mutation | requireUser | Creates or refreshes the caller's row and promotes `ADMIN_EMAILS` (never demotes). |
 | `users.me` | query | requireUser | The caller's own row. |
@@ -77,13 +77,15 @@ callable from clients).
 | `admin.listAutomationEvents` | query | requireAdmin | Newest first, optional `status`/`kind`/`limit`. Includes `attempts` and `lastError`. |
 | `admin.removeListing` | mutation | requireAdmin | Soft delete even while `on_loan`. An approved loan stays returnable. Repeating it is a no-op. |
 | `admin.setTrustedLender` | mutation | requireAdmin | Changes `trustedLender` only. |
+| `admin.resendEvent` | mutation | requireAdmin | Re-queues a `failed` request notification on the same row and key and schedules `deliver`. `CONFLICT` if it is sent or queued, or out of date (the loan has moved past the transition it announces); `INVALID` for overdue reminders; `NOT_FOUND` for a missing event or loan. One extra attempt, no new retry chain. |
 | `users.setRole` | internalMutation | internal | Dashboard/CLI promote or demote. |
 | `automation.deliver` | internalAction | internal | Signs and POSTs one event, then records success or failure. |
 | `automation.getEventPayload` | internalQuery | internal | Builds the payload. Skips events that are not `queued`. |
 | `automation.markSent` / `markFailed` | internalMutation | internal | Record the attempt. `markFailed` schedules the next retry or sets `failed`. |
 | `automation.listOverdue` | internalQuery | internal | Approved loans with `endDate < today` not yet reminded today. |
 | `automation.recordReminderStatus` | internalMutation | internal | Inserts once per key and returns `{ ok }`. |
-| `seed.overdueLoan` | internalMutation | internal | Demo fixture. |
+| `seed.neighbors` | internalMutation | internal | Demo fixture: Marcus D., Olivia P. and Jake T. with two tools each, linked to their Clerk ids (`scripts/clerk-test-users.mjs`). Never gives two rows the same `clerkId`. |
+| `seed.overdueLoan` | internalMutation | internal | Demo fixture: Olivia P.'s stand mixer, due yesterday. |
 | `GET /n8n/overdue-loans` | httpAction | HMAC (`N8N_TO_CONVEX_SECRET`) | → `automation.listOverdue`. |
 | `POST /n8n/reminder-status` | httpAction | HMAC (`N8N_TO_CONVEX_SECRET`) | → `automation.recordReminderStatus`. |
 
@@ -241,13 +243,13 @@ sequenceDiagram
   Note over T,DB: Re-running the same day: the GET leaves out loans already reminded, and a repeated POST is a no-op
 ```
 
-The borrower's `/my/requests` (from `loans.listMine` → `activity`) then shows "Reminder sent …".
+The borrower's `/my/requests` (from `loans.listMine` → `activity`) then shows "Overdue reminder sent to you" in the loan's Activity ledger.
 
 ## 7. Failure modes and where they show
 
 | Failure | What happens | Where you see it |
 |---|---|---|
-| n8n down, tunnel URL changed, or 5xx | `deliver` records the failure and retries at 30 s, 2 min and 10 min. After 4 attempts the event is `failed`. | Admin → Automation events (`failed`, `attempts: 4`, `lastError: "HTTP 502 from webhook"` / `"Network error: …"`). Borrower activity shows "Notification failed …". |
+| n8n down, tunnel URL changed, or 5xx | `deliver` records the failure and retries at 30 s, 2 min and 10 min. After 4 attempts the event is `failed`. An admin can **Resend** it (`admin.resendEvent`) while it still describes the loan. | Admin → Automated emails (FAILED, "4 of 4", a plain next step such as "n8n couldn't be reached. Check the tunnel address." plus the redacted `lastError`). The borrower sees a FAILED line in the request's Activity, and a red note while that email is still current. |
 | `N8N_REQUEST_WEBHOOK_URL` or `CONVEX_TO_N8N_SECRET` unset in Convex | Counted as a failed attempt with normal retries. | Same as above, with `lastError: "Webhook URL or signing secret is not configured"`. |
 | Secrets differ between Convex and n8n | n8n answers 401, which Convex treats as a non-2xx failure and retries. | Admin `lastError: "HTTP 401 from webhook"`. The n8n execution log shows the reason. |
 | n8n receives an unknown `type` | The Switch fallback answers 400. | Admin `failed` with `HTTP 400`. |
@@ -257,7 +259,7 @@ The borrower's `/my/requests` (from `loans.listMine` → `activity`) then shows 
 | `N8N_TO_CONVEX_SECRET` unset in Convex | Every inbound request gets 401. | n8n HTTP node fails after 3 tries, and the error handler alerts. |
 | `CONVEX_TO_N8N_SECRET` unset in n8n | The Verify node throws (not 401). | n8n error handler (mock outbox / Slack / Discord). Convex retries, then shows `failed`. |
 | Convex unreachable from n8n | HTTP nodes retry 3 times, 10 s apart, then the run stops. | n8n error handler. The next run is safe because write-backs are idempotent. |
-| Mock send fails for one reminder | Written back as `status: "failed"` with a short error. The loop continues. | Admin events (`overdue_reminder`, `failed`, `lastError`). Borrower activity shows "Reminder failed …". |
+| Mock send fails for one reminder | Written back as `status: "failed"` with a short error. The loop continues. | Admin → Automated emails (Overdue reminder, FAILED, `lastError`; no Resend, the next daily run retries). Borrower Activity shows "Overdue reminder didn't go through". |
 | Malformed write-back (bad JSON, unknown loan, wrong key format) | 400, nothing written. | n8n execution, and the error handler if retries run out. |
 | A signed-in user without a `users` row runs a query | `UNAUTHENTICATED`. `EnsureUser` prevents this in the UI. | The `EnsureUser` error state with Retry. |
 | A plain user opens `/admin` | The UI shows "Admins only". Any admin query would get `FORBIDDEN`. | Admin page. |

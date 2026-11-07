@@ -1,34 +1,49 @@
 "use client";
 
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import { formatDateRange } from "@/lib/dates";
-import { PersonName, StatusBadge } from "../ui/Badges";
-import { EmptyState, LoadingState } from "../ui/States";
-import { AdminTable, Cell } from "./AdminTable";
+import { daysOverdue, formatDateRange } from "@/lib/dates";
+import { shortName } from "@/lib/names";
+import { TrustedBadge } from "../ui/Badges";
+import { LoanStamp, OverdueTag } from "../ui/Stamp";
+import { EmptyState } from "../ui/States";
+import type { AdminLoan } from "./AdminEvents";
+import { AdminSection, AdminTable } from "./AdminTable";
 
-export function AdminLoans() {
-  const loans = useQuery(api.admin.listAllLoans);
-  if (loans === undefined) return <LoadingState label="Loading loans…" />;
-  if (loans.length === 0) return <EmptyState title="No loans or requests yet" />;
+export function AdminLoans({ loans, today }: { loans: AdminLoan[]; today: string }) {
   return (
-    <AdminTable caption="All loans" headers={["Tool", "Borrower", "Lender", "Dates", "Status"]}>
-      {loans.map((loan) => (
-        <tr key={loan._id}>
-          <Cell>
-            {loan.toolName}
-            {loan.toolRemoved ? <span className="ml-1 text-xs text-red-700">(removed)</span> : null}
-          </Cell>
-          <Cell>{loan.borrowerName}</Cell>
-          <Cell>
-            <PersonName name={loan.lenderName} trusted={loan.lenderTrusted} />
-          </Cell>
-          <Cell className="whitespace-nowrap">{formatDateRange(loan.startDate, loan.endDate)}</Cell>
-          <Cell>
-            <StatusBadge status={loan.status} />
-          </Cell>
-        </tr>
-      ))}
-    </AdminTable>
+    <AdminSection id="loans" title="All loans and requests">
+      {loans.length === 0 ? (
+        <EmptyState title="No loans or requests yet" />
+      ) : (
+        <AdminTable caption="All loans and requests, newest first" headers={["Tool", "Lender", "Borrower", "Dates", "Status"]}>
+          {loans.map((loan) => {
+            const late = loan.status === "approved" ? daysOverdue(loan.endDate, today) : 0;
+            const stale = loan.status === "pending" && loan.startDate < today;
+            return (
+              <tr key={loan._id}>
+                <td>
+                  {loan.toolName}
+                  {loan.toolRemoved ? <span className="ml-1.5 text-sm text-ink-3">(removed)</span> : null}
+                </td>
+                <td>
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {shortName(loan.lenderName)}
+                    {loan.lenderTrusted ? <TrustedBadge compact /> : null}
+                  </span>
+                </td>
+                <td>{shortName(loan.borrowerName)}</td>
+                <td className="num">{formatDateRange(loan.startDate, loan.endDate)}</td>
+                <td>
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <LoanStamp status={loan.status} size="sm" />
+                    {late > 0 ? <OverdueTag days={late} className="text-xs" /> : null}
+                    {stale ? <span className="text-sm text-ink-2">Start date passed</span> : null}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </AdminTable>
+      )}
+    </AdminSection>
   );
 }

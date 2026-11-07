@@ -26,6 +26,11 @@ n8n/.env
 # agent loop marker
 .build-in-progress
 
+# local-only: the design canvas export and new Claude Code files (launch config, local
+# settings). The agent kit already tracked under .claude/ stays in the repo.
+lendloop-design/
+.claude/
+
 # misc
 .DS_Store
 *.pem

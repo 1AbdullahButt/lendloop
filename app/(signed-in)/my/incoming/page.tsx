@@ -1,13 +1,12 @@
 import { IncomingRequests } from "@/components/loans/IncomingRequests";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { PageBody } from "@/components/ui/PageHeader";
 
-export const metadata = { title: "Incoming · LendLoop" };
+export const metadata = { title: "Incoming requests · LendLoop" };
 
 export default function IncomingPage() {
   return (
-    <>
-      <PageHeader title="Incoming requests">Approve or decline requests on your tools, and mark loans returned.</PageHeader>
+    <PageBody width="narrow">
       <IncomingRequests />
-    </>
+    </PageBody>
   );
 }

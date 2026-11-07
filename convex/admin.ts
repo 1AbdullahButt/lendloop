@@ -1,7 +1,10 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./lib/auth";
 import { appError } from "./lib/errors";
+import { isCurrentEmail } from "./lib/announces";
+import { typeFromKey } from "./lib/events";
 import { softRemoveTool } from "./lib/removal";
 import { makeLookups } from "./lib/views";
 import { eventKind, eventStatus } from "./schema";
@@ -95,6 +98,41 @@ export const setTrustedLender = mutation({
     const user = await ctx.db.get(args.userId);
     if (!user) throw appError("NOT_FOUND", "User not found.");
     await ctx.db.patch(user._id, { trustedLender: args.trusted });
+    return null;
+  },
+});
+
+/**
+ * Re-queues a request notification that gave up after its retries. It reuses the same row
+ * and idempotency key, so a resend can never create a second notification for one
+ * transition. A resend is a single extra attempt: attempts is already at the maximum, so if
+ * it fails again markFailed marks it failed instead of starting a new retry chain.
+ * Only an email that still describes the loan is resent: "new request" after the borrower
+ * cancelled, or "approved" after the return, would mislead the recipient.
+ */
+export const resendEvent = mutation({
+  args: { eventId: v.id("automationEvents") },
+  handler: async (ctx, { eventId }) => {
+    await requireAdmin(ctx);
+    const event = await ctx.db.get(eventId);
+    if (!event) throw appError("NOT_FOUND", "Event not found.");
+    if (event.kind !== "request_notification") {
+      throw appError("INVALID", "Overdue reminders are retried by the daily n8n workflow.");
+    }
+    if (event.status !== "failed") {
+      const why = event.status === "queued" ? "is already being sent" : "was already sent";
+      throw appError("CONFLICT", `This email ${why}.`);
+    }
+    const loan = await ctx.db.get(event.loanId);
+    if (!loan) throw appError("NOT_FOUND", "The loan for this email no longer exists.");
+    // Once the loan has moved past the transition this email announces, it is stale.
+    if (!isCurrentEmail(typeFromKey(event.idempotencyKey), loan.status)) {
+      const now = loan.status === "cancelled" ? "canceled" : loan.status;
+      throw appError("CONFLICT", `This email is out of date: the request is now ${now}.`);
+    }
+    await ctx.db.patch(eventId, { status: "queued", lastError: undefined });
+    // Mutations never call the network: delivery stays in the internal action.
+    await ctx.scheduler.runAfter(0, internal.automation.deliver, { eventId });
     return null;
   },
 });

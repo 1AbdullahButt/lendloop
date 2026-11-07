@@ -2,14 +2,16 @@ import { execSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { clerk } from "@clerk/testing/playwright";
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { shortName } from "../../lib/names";
 
 // The take-home kit's manual checklist ("KICKOFF section 4", not in this repo), automated against the real stack. Users sign in with @clerk/testing's
 // sign-in tokens (Clerk secret key from .env.local), so no password or code is typed.
+// Ben C. lends and Maya R. borrows; both are created by scripts/clerk-test-users.mjs.
 // Screenshots mask every email that is not @example.com, the admin's own row and the Clerk
 // user button. The admin email is read from Convex's ADMIN_EMAILS and never logged.
 
-const LENDER_EMAIL = "lender+clerk_test@example.com";
-const BORROWER_EMAIL = "borrower+clerk_test@example.com";
+const LENDER_EMAIL = "ben+clerk_test@example.com";
+const BORROWER_EMAIL = "maya+clerk_test@example.com";
 
 const SHOTS = "qa/screenshots";
 const OVERDUE_WORKFLOW = process.env.N8N_OVERDUE_WORKFLOW_ID;
@@ -18,6 +20,8 @@ const DRILL = `QA drill ${stamp}`;
 const SPARE = `QA spare ladder ${stamp}`;
 
 type Row = Record<string, unknown> & { _id: string };
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function sh(cmd: string): string {
   return execSync(cmd, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 180_000 });
@@ -93,13 +97,14 @@ test.afterEach(async ({}, testInfo) => {
 function masks(page: Page) {
   return [
     page.locator("td").filter({ hasText: /@(?!example\.com\b)/ }),
-    page.locator("tr").filter({ has: page.locator("td", { hasText: /^admin$/i }) }),
+    page.locator('tr[data-role="admin"]'),
     page.locator(".cl-userButtonTrigger, .cl-userButtonBox"),
   ];
 }
 
 async function shot(page: Page, name: string): Promise<void> {
-  await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true, mask: masks(page) });
+  // Finished state for the stamp animations, so screenshots never catch a stamp mid-press.
+  await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true, mask: masks(page), animations: "disabled" });
 }
 
 async function open(page: Page, path: string): Promise<void> {
@@ -126,33 +131,34 @@ test("KICKOFF 4: lend, borrow, approve, notify, moderate, remind once", async ({
       await lender.getByLabel("Name").fill(name);
       await lender.getByLabel("Category").selectOption(category);
       await lender.getByLabel(/^Description/).fill(description);
-      await lender.getByRole("button", { name: "Add tool" }).click();
-      await expect(lender.getByRole("region", { name: "Your tools" }).getByText(name)).toBeVisible();
+      await lender.getByRole("button", { name: "Put it on the board" }).click();
+      await expect(lender.getByRole("region", { name: /^On the board/ }).getByText(name)).toBeVisible();
     }
     await shot(lender, "01-lender-my-listings");
   });
 
   await test.step("B requests the drill", async () => {
     await open(borrower, "/tools");
-    await borrower.getByRole("button", { name: `Request ${DRILL}` }).click();
-    await borrower.getByRole("form", { name: `Request ${DRILL}` }).getByRole("button", { name: "Send request" }).click();
+    // Each tool tag is a button that opens its borrowing card.
+    await borrower.getByRole("button", { name: new RegExp(escapeRe(DRILL)) }).click();
+    await borrower.getByRole("form", { name: `Request ${DRILL}` }).getByRole("button", { name: /^Send request to/ }).click();
     await expect(borrower.getByRole("status").filter({ hasText: "Request sent" })).toBeVisible();
     await shot(borrower, "02-borrower-requested");
   });
 
   await test.step("A approves", async () => {
     await open(lender, "/my/incoming");
-    await lender.getByRole("button", { name: `Approve request for ${DRILL}` }).click();
-    const card = lender.locator("li").filter({ hasText: DRILL });
-    await expect(card.getByText("approved", { exact: false }).first()).toBeVisible();
+    await lender.getByRole("button", { name: new RegExp(`^Approve .+'s request for ${escapeRe(DRILL)}$`) }).click();
+    const group = lender.getByRole("region", { name: DRILL, exact: true });
+    await expect(group.getByText("approved", { exact: false }).first()).toBeVisible();
     await shot(lender, "03-lender-approved");
   });
 
   await test.step("B sees both notifications sent", async () => {
     await open(borrower, "/my/requests");
-    const card = borrower.locator("li").filter({ hasText: DRILL });
+    const card = borrower.getByRole("article", { name: new RegExp(`^${escapeRe(DRILL)},`) });
     // requested -> lender, approved -> borrower; each goes Convex -> tunnel -> n8n.
-    await expect(card.getByText(/Notification sent/)).toHaveCount(2, { timeout: 120_000 });
+    await expect(card.locator('[data-kind="email"][data-status="sent"]')).toHaveCount(2, { timeout: 120_000 });
     await shot(borrower, "04-borrower-notification-sent");
   });
 
@@ -160,27 +166,30 @@ test("KICKOFF 4: lend, borrow, approve, notify, moderate, remind once", async ({
   const drill = tools.find((t) => t.name === DRILL)!;
   const loan = convexData("loans").find((l) => l.toolId === drill._id)!;
   const users = convexData("users");
-  const lenderName = String(users.find((u) => u._id === drill.ownerId)!.name);
+  const lenderName = shortName(String(users.find((u) => u._id === drill.ownerId)!.name));
   const borrowerId = String(loan.borrowerId);
 
   await test.step("Admin removes the spare listing and marks A Trusted Lender", async () => {
     await open(admin, "/admin");
     await admin.getByRole("button", { name: `Remove listing ${SPARE}` }).click();
-    await admin.getByRole("button", { name: "Confirm remove" }).click();
+    await admin.getByRole("button", { name: "Yes, remove" }).click();
     const spareRow = admin.locator("tr").filter({ hasText: SPARE });
     await expect(spareRow.getByText("removed", { exact: false })).toBeVisible();
 
-    const trusted = admin.getByRole("checkbox", { name: `Trusted Lender for ${lenderName}` });
-    if (!(await trusted.isChecked())) await trusted.click();
-    await expect(trusted).toBeChecked();
+    const mark = admin.getByRole("button", { name: `Mark trusted for ${lenderName}` });
+    if (await mark.count()) await mark.first().click();
+    await expect(admin.getByRole("button", { name: `Remove badge for ${lenderName}` }).first()).toBeVisible();
     await shot(admin, "05-admin-removed-and-trusted");
   });
 
   await test.step("Removed listing is gone; Trusted badge shows to B", async () => {
     await open(borrower, "/tools");
-    await expect(borrower.getByRole("heading", { name: SPARE })).toHaveCount(0);
-    // Each tool card is one <li> in the /tools grid; the badge sits in its "Lent by" line.
-    const drillCard = borrower.getByRole("listitem").filter({ has: borrower.getByRole("heading", { name: DRILL }) });
+    // Each tool tag is one <li> in the /tools grid; the badge sits next to the lender's name.
+    const drillCard = borrower
+      .getByRole("listitem")
+      .filter({ has: borrower.getByRole("button", { name: new RegExp(escapeRe(DRILL)) }) });
+    await expect(drillCard).toBeVisible();
+    await expect(borrower.getByRole("button", { name: new RegExp(escapeRe(SPARE)) })).toHaveCount(0);
     await expect(drillCard.getByText("Trusted Lender")).toBeVisible();
     await shot(borrower, "06-borrower-trusted-badge");
 
@@ -209,8 +218,8 @@ test("KICKOFF 4: lend, borrow, approve, notify, moderate, remind once", async ({
     expect(afterSecond[0]).toEqual(afterFirst[0]);
 
     await open(borrower, "/my/requests");
-    const card = borrower.locator("li").filter({ hasText: "Seed hedge trimmer" }).first();
-    await expect(card.getByText(/Reminder sent/)).toBeVisible();
+    const card = borrower.getByRole("article", { name: /^Stand mixer,/ }).first();
+    await expect(card.getByText("Overdue reminder sent to you").first()).toBeVisible();
     await shot(borrower, "08-borrower-reminder-sent");
   });
 });

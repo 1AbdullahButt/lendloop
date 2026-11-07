@@ -1,13 +1,16 @@
 import { MyRequests } from "@/components/loans/MyRequests";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { PageBody, PageHeader } from "@/components/ui/PageHeader";
 
 export const metadata = { title: "My requests · LendLoop" };
 
 export default function MyRequestsPage() {
   return (
-    <>
-      <PageHeader title="My requests">What you asked to borrow, its status and recent notifications.</PageHeader>
+    <PageBody width="narrow">
+      <PageHeader title="My requests">
+        Everything you&apos;ve asked to borrow, with every email we&apos;ve sent about it, including the ones that
+        failed.
+      </PageHeader>
       <MyRequests />
-    </>
+    </PageBody>
   );
 }

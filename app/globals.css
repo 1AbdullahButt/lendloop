@@ -1,18 +1,634 @@
 @import "tailwindcss";
 
+/*
+ * "Library checkout card" design system (lendloop-design/). Paper background, ink text,
+ * pine green for actions, sun yellow for attention. Archivo for headings, Atkinson
+ * Hyperlegible for body, IBM Plex Mono for dates and statuses.
+ */
+@theme {
+  --color-paper: #f3f4f1;
+  --color-ink: #15201b;
+  --color-ink-2: #3e4a44;
+  --color-ink-3: #4f5b55;
+  --color-pine: #1f6b4e;
+  --color-pine-dark: #185a41;
+  --color-pine-ink: #145233;
+  --color-pine-tint: #f1f8f4;
+  --color-sun: #f5c518;
+  --color-sun-tint: #fff1c2;
+  --color-ochre: #6b4e00;
+  --color-ochre-ink: #4a3600;
+  --color-brick: #8a2a1e;
+  --color-brick-dark: #6e2017;
+  --color-brick-tint: #f6deda;
+  --color-slate: #2e4257;
+  --color-mist: #e6e9e3;
+  --color-line: #b9c0b6;
+  --color-line-soft: #d9ddd6;
+  --color-line-strong: #6b7570;
+  --color-rule-blue: #c9d7e6;
+  --color-rule-red: #d9a79f;
+  --color-night-2: #2a3832;
+  --color-on-night: #c3ccc7;
+
+  --font-sans: var(--font-atkinson), "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-archivo), "Arial Narrow", sans-serif;
+  --font-mono: var(--font-plex-mono), Consolas, monospace;
+
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 :root {
   color-scheme: light;
 }
 
-@theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+/* Element defaults sit in the base layer so component classes and utilities override them. */
+@layer base {
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--color-sun);
+    color: var(--color-ink);
+  }
+
+  a {
+    color: var(--color-pine);
+    text-underline-offset: 3px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    a:hover {
+      color: #14513a;
+    }
+  }
+
+  /* Two-tone focus ring (ink outline + sun halo) reads on paper, white and green. */
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--color-sun);
+  }
+  .on-dark :focus-visible {
+    outline-color: var(--color-sun);
+    box-shadow: none;
+  }
 }
 
-body {
-  @apply bg-stone-50 text-stone-900 antialiased;
+@layer components {
+  .wrap {
+    width: 100%;
+    max-width: 1280px;
+    margin-inline: auto;
+    padding-inline: 32px;
+  }
+  .wrap-narrow {
+    width: 100%;
+    max-width: 1080px;
+    margin-inline: auto;
+    padding-inline: 32px;
+  }
+  .wrap-home {
+    width: 100%;
+    max-width: 1200px;
+    margin-inline: auto;
+    padding-inline: 32px;
+  }
+  @media (max-width: 600px) {
+    .wrap,
+    .wrap-narrow,
+    .wrap-home {
+      padding-inline: 16px;
+    }
+  }
+
+  .font-display-wide {
+    font-family: var(--font-display);
+    font-stretch: 115%;
+  }
+
+  /* Buttons. 44px minimum target; press feedback is a quick scale, never on disabled. */
+  .btn {
+    font: inherit;
+    font-weight: 700;
+    border-radius: 10px;
+    min-height: 44px;
+    padding: 0 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition:
+      transform 160ms var(--ease-out-quint),
+      background-color 150ms ease,
+      border-color 150ms ease;
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+  }
+  .btn-sm {
+    font-size: 14px;
+    border-radius: 8px;
+    padding: 0 14px;
+  }
+  .btn-lg {
+    min-height: 52px;
+    font-size: 17px;
+    border-radius: 12px;
+    padding: 0 22px;
+  }
+  .btn-pri {
+    background: var(--color-pine);
+    color: #fff;
+    border: 0;
+  }
+  .btn-pri:disabled {
+    background: var(--color-mist);
+    color: var(--color-ink-2);
+  }
+  .btn-ghost {
+    background: #fff;
+    color: var(--color-ink);
+    border: 2px solid var(--color-line);
+  }
+  .btn-ghost:disabled {
+    color: var(--color-ink-3);
+    border-color: var(--color-line-soft);
+    background: var(--color-paper);
+  }
+  .btn-danger-ghost {
+    background: #fff;
+    color: var(--color-brick);
+    border: 2px solid var(--color-rule-red);
+  }
+  .btn-danger-ghost:disabled {
+    color: var(--color-ink-3);
+    border-color: var(--color-line-soft);
+    background: var(--color-paper);
+  }
+  .btn-danger {
+    background: var(--color-brick);
+    color: #fff;
+    border: 0;
+  }
+  .btn-on-dark {
+    background: transparent;
+    color: var(--color-paper);
+    border: 0;
+    padding: 0 8px;
+    min-width: 44px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-pri:not(:disabled):hover {
+      background: var(--color-pine-dark);
+      color: #fff;
+    }
+    .btn-ghost:not(:disabled):hover {
+      border-color: var(--color-ink);
+      color: var(--color-ink);
+    }
+    .btn-danger-ghost:not(:disabled):hover {
+      border-color: var(--color-brick);
+    }
+    .btn-danger:not(:disabled):hover {
+      background: var(--color-brick-dark);
+      color: #fff;
+    }
+  }
+
+  /* Rubber-stamp status marks. */
+  .stamp {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    font-size: 13px;
+    border: 2px solid currentColor;
+    border-radius: 5px;
+    padding: 2px 8px;
+    display: inline-block;
+    white-space: nowrap;
+    line-height: 1.5;
+    text-transform: uppercase;
+  }
+  .stamp-lg {
+    font-size: 15px;
+    border-width: 3px;
+    padding: 3px 10px;
+  }
+  .stamp-sm {
+    font-size: 12px;
+    padding: 1px 7px;
+  }
+  .s-pending {
+    color: var(--color-ochre);
+  }
+  .s-approved {
+    color: var(--color-pine-ink);
+  }
+  .s-declined {
+    color: var(--color-brick);
+  }
+  .s-returned {
+    color: var(--color-slate);
+  }
+  .s-cancelled {
+    color: var(--color-ink-3);
+  }
+  .s-failed {
+    color: var(--color-brick);
+    background: var(--color-brick-tint);
+  }
+
+  .tag-yellow {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    background: var(--color-sun);
+    color: var(--color-ink);
+    border-radius: 5px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    text-transform: uppercase;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .mono {
+    font-family: var(--font-mono);
+  }
+
+  /* The luggage-tag card: notched bottom-left corner and a punched hole. */
+  .tag-card {
+    position: relative;
+    background: #fff;
+    border: 2px solid var(--color-line-soft);
+    border-radius: 12px 12px 12px 32px;
+    padding: 18px 18px 16px 40px;
+  }
+  .tag-hole {
+    position: absolute;
+    left: 14px;
+    top: 20px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--color-ink);
+    background: var(--color-paper);
+  }
+  button.tag-card {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    width: 100%;
+    transition:
+      transform 200ms var(--ease-out-quint),
+      border-color 150ms ease;
+  }
+  button.tag-card[aria-pressed="true"] {
+    border-color: var(--color-pine);
+    box-shadow: inset 0 0 0 2px var(--color-pine);
+  }
+  button.tag-card:active {
+    transform: scale(0.98);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    button.tag-card:hover {
+      border-color: var(--color-line-strong);
+    }
+    button.tag-card[aria-pressed="true"]:hover {
+      border-color: var(--color-pine);
+    }
+  }
+
+  .chip {
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 0 14px;
+    min-height: 44px;
+    border-radius: 999px;
+    cursor: pointer;
+    border: 2px solid var(--color-line);
+    background: #fff;
+    color: var(--color-ink);
+    white-space: nowrap;
+    transition: border-color 150ms ease;
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--color-ink);
+    border-color: var(--color-ink);
+    color: #fff;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .chip:hover {
+      border-color: var(--color-ink);
+    }
+  }
+
+  .navlink {
+    text-decoration: none;
+    color: var(--color-ink-2);
+    padding: 0 14px;
+    border-radius: 8px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .navlink[aria-current="page"] {
+    color: var(--color-ink);
+    font-weight: 700;
+    background: var(--color-mist);
+  }
+  .on-dark .navlink {
+    color: var(--color-on-night);
+  }
+  .on-dark .navlink[aria-current="page"] {
+    color: #fff;
+    background: var(--color-night-2);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .navlink:hover {
+      color: var(--color-ink);
+      background: var(--color-mist);
+    }
+    .on-dark .navlink:hover {
+      color: #fff;
+      background: var(--color-night-2);
+    }
+  }
+
+  .field-input {
+    font: inherit;
+    font-size: 16px;
+    font-weight: 400;
+    padding: 10px 12px;
+    min-height: 44px;
+    border: 2px solid var(--color-line-strong);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--color-ink);
+    width: 100%;
+  }
+  .field-input[aria-invalid="true"] {
+    border-color: var(--color-brick);
+  }
+  textarea.field-input {
+    min-height: 110px;
+    resize: vertical;
+    line-height: 1.5;
+  }
+  .field-label {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .opt {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 2px solid var(--color-line);
+    border-radius: 10px;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  .opt:has(input:checked) {
+    border-color: var(--color-pine);
+    box-shadow: inset 0 0 0 1px var(--color-pine);
+    background: var(--color-pine-tint);
+  }
+  .opt input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+  .opt:has(input:focus-visible) {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--color-sun);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .opt:hover {
+      border-color: var(--color-ink);
+    }
+  }
+
+  .tab {
+    font: inherit;
+    background: transparent;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    color: var(--color-ink-2);
+    padding: 0 12px;
+    min-height: 44px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .tab[aria-pressed="true"] {
+    color: var(--color-ink);
+    font-weight: 700;
+    border-bottom-color: var(--color-ink);
+  }
+
+  .scroll-x {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  /* Admin tables. */
+  .tbl {
+    overflow-x: auto;
+    background: #fff;
+    border: 1px solid var(--color-line-soft);
+    border-radius: 12px;
+  }
+  .tbl table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 15px;
+  }
+  .tbl th {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--color-ink-2);
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--color-ink);
+    white-space: nowrap;
+    text-transform: uppercase;
+  }
+  .tbl td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-mist);
+    vertical-align: middle;
+  }
+  .tbl tr:last-child td {
+    border-bottom: 0;
+  }
+  .num {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Borrowing card ledger rows (My requests activity). */
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 136px 92px minmax(0, 1fr);
+    gap: 12px;
+    padding: 9px 0;
+    border-top: 1px solid var(--color-rule-blue);
+    font-size: 15px;
+    align-items: baseline;
+  }
+  @media (max-width: 600px) {
+    .ledger-row {
+      grid-template-columns: 104px minmax(0, 1fr);
+    }
+    .ledger-row > :nth-child(n + 2) {
+      grid-column: 2;
+    }
+  }
+  details.activity > summary {
+    cursor: pointer;
+    list-style: none;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+  }
+  details.activity > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.activity > summary .chev {
+    transition: transform 200ms var(--ease-out-quint);
+  }
+  details.activity[open] > summary .chev {
+    transform: rotate(90deg);
+  }
+
+  /*
+   * Browse: the borrowing card is a sticky side panel on wide screens and a bottom sheet
+   * on narrow ones (slides up; the scrim fades).
+   */
+  .sheet {
+    background: #fff;
+    border: 2px solid var(--color-ink);
+    border-radius: 18px;
+    overflow: hidden;
+    position: sticky;
+    top: 24px;
+  }
+  .sheet-close,
+  .scrim {
+    display: none;
+  }
+  @media (max-width: 860px) {
+    .sheet {
+      position: fixed;
+      inset: auto 0 0 0;
+      max-height: 88vh;
+      overflow-y: auto;
+      border-radius: 18px 18px 0 0;
+      border-bottom: 0;
+      z-index: 30;
+      transform: translateY(105%);
+      transition: transform 340ms var(--ease-drawer);
+    }
+    .sheet[data-open="true"] {
+      transform: none;
+    }
+    .sheet-close {
+      display: inline-flex;
+    }
+    .scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgb(21 32 27 / 0.4);
+      z-index: 25;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 240ms ease;
+    }
+    .scrim[data-open="true"] {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+
+  /* Incoming: request calendar rows. */
+  .track-row {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+  }
 }
 
-/* Visible focus ring for keyboard users on every interactive element. */
-:where(a, button, input, select, textarea, summary):focus-visible {
-  @apply outline-2 outline-offset-2 outline-emerald-600;
+/*
+ * A stamp pressed onto the card. Only on elements that appear because of the user's own
+ * action (sent, approved, declined, returned, resent) and the hero card's first paint, so
+ * lists never animate on every visit. `scale` is separate from the stamps' `rotate`.
+ */
+@keyframes stamp-press {
+  0% {
+    opacity: 0;
+    scale: 1.6;
+  }
+  55% {
+    opacity: 1;
+    scale: 0.94;
+  }
+  100% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+.stamp-in {
+  animation: stamp-press 320ms var(--ease-out-quint) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp-in {
+    animation: none;
+  }
+  .btn,
+  button.tag-card,
+  .sheet,
+  .scrim,
+  details.activity > summary .chev {
+    transition: none;
+  }
 }

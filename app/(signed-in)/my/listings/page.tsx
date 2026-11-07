@@ -1,13 +1,15 @@
 import { MyListings } from "@/components/listings/MyListings";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { PageBody, PageHeader } from "@/components/ui/PageHeader";
 
 export const metadata = { title: "My listings · LendLoop" };
 
 export default function MyListingsPage() {
   return (
-    <>
-      <PageHeader title="My listings">Add, edit or remove your tools and answer requests on them.</PageHeader>
+    <PageBody>
+      <PageHeader title="My listings">
+        Tools you lend. You decide every request, and only signed-in neighbors see who&apos;s lending.
+      </PageHeader>
       <MyListings />
-    </>
+    </PageBody>
   );
 }

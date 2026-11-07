@@ -87,7 +87,7 @@ One line each: decision — reason. Agents add to this as they build; the README
 - Request stays enabled for `on_loan` tools — R3 only blocks overlapping approvals, so future requests are valid.
 - `/admin` checks `users.me.role` first and shows "Admins only" without firing admin queries; `FORBIDDEN` maps to the same state — no error flash; Convex still enforces.
 - Admin roles are read-only in the UI; Trusted Lender is the only toggle — roles change only via `ADMIN_EMAILS` or `users.setRole` (AC8).
-- System font stack instead of `next/font/google` — builds need no network.
+- ~~System font stack instead of `next/font/google` — builds need no network.~~ Superseded by the redesign: fonts come from `next/font/google`, so `next build` needs network access once to download them (they are then self-hosted).
 - Activity lines use `sentAt` for sent events, else `createdAt` — "sent 2 days ago" means delivery time.
 
 ### n8n
@@ -105,3 +105,32 @@ One line each: decision — reason. Agents add to this as they build; the README
 - Execution data is pruned after 7 days — webhook executions still contain the recipient email.
 - `settings.errorWorkflow` is unset in the exports — imports get new ids, so it is set by hand.
 - The optional Slack/Discord alert sends both `text` and `content` — one node covers both.
+
+### Redesign (library checkout card)
+- The design canvas (a local export, kept out of the repo) puts the tagline in the `<h1>`; the heading starts with a visually hidden "LendLoop: " — the locked AC1 test needs "LendLoop" in the main heading and the exact tagline visible.
+- Names show as first name + last initial (`lib/names.ts`) in the UI only — the brief kept this change frontend-only; projecting short names in Convex is listed as a production change.
+- Admin "Neighbors" table drops the role column and shows a masked email plus the last 6 characters of the user id (`b***@example.com · #3f9k2a`; not guaranteed unique, a clash between two given rows is about 1 in 100,000) under each name; an ADMIN tag marks admins — enough to tell two "Ben C." apart before changing a badge (QA L25), without full addresses on screen.
+- Admin listing removal stays allowed while a tool is on loan (unlike the canvas) — `admin.removeListing` permits it by design and the loan stays returnable; the confirm text says so.
+- The Trusted Lender control is a button whose text names the action ("Mark trusted" / "Remove badge" + hidden "for Ben C.") — the visible label stays inside the accessible name.
+- Browse search filters the loaded list client-side; category still filters in `tools.list` — no new query was allowed.
+- Browse shows "Out on loan" without a return date — `tools.list` has no loan dates; adding them was out of scope.
+- Incoming keeps a request's APPROVED/DECLINED stamp in its tool group for the rest of the visit — the live query moves it at once, and the stamp is the confirmation.
+- Client date checks mirror R2 (start ≥ today, end ≥ start, end ≤ start + 30, shown as "31 days max" inclusive) — the server rule is unchanged and still decides.
+- Displayed status "Canceled" (US spelling); the stored status stays `cancelled` — the schema enums are fixed by the spec.
+- The home page's sample borrowing card is labeled EXAMPLE and uses items the seed never lists — guests must not read it as real loan status (QA L21).
+- Home page privacy copy says neighbors see "your name, never your email", not "first name and last initial" — the short form is applied in the UI only, so the stronger promise would not hold for the data (QA L24).
+- The Browse bottom sheet is `inert` while closed, a dialog while open, takes focus on open and returns it to the tool tag on close; admin Resend and Remove keep focus on their table cell (QA L18).
+- Admin email rows show the plain-language hint and, under it, the stored `lastError` (already redacted and capped) (QA L20).
+- Seed runs prefer a signed-in row over a `seed_` placeholder with the same email, and delete an emptied placeholder (no tools, no loans) — otherwise later runs re-seed onto the ghost row and the admin sees two Olivias (QA L26).
+- The open Browse sheet keeps focus inside itself with a focus guard at each edge, not by intercepting Tab — it is announced as a modal dialog, so focus must not reach the page behind the scrim (QA L27), and a Tab handler broke the month/day/year stops of the date inputs (QA L29).
+- Under "Show failed only", a row resent on this visit stays listed — its new status and "Resent just now" stay visible and focus keeps a cell to land on (QA L28).
+- The status each notification type announces lives in one dependency-free file, `convex/lib/announces.ts`, used by `admin.resendEvent` and the UI — the two rules can't drift.
+- Motion: stamp press (320 ms, scale only) on stamps created by the user's own action and the hero card's first paint; mobile sheet slide; button press scale. No scroll-triggered reveals — this is a working tool, revisited often, and reveal-on-scroll hides content in full-page screenshots and for anyone scrolling fast.
+- Fonts are self-hosted with `next/font/google` — no runtime request to Google, no layout shift from late swaps. Trade-off: `next build` downloads them, so an offline build fails; switch to `next/font/local` with committed font files if that matters.
+- `admin.resendEvent` reuses the failed row and its idempotency key, refuses sent/queued (CONFLICT) and reminders (INVALID), and does not reset `attempts` — one notification per transition still holds, a double click schedules one job, and a resend that fails again goes straight back to `failed`.
+- `admin.resendEvent` also refuses (CONFLICT) an email the loan has moved past: each type announces one status (`loan.requested` ↔ pending, `loan.approved` ↔ approved, …) — a "new request" email after the borrower cancelled would mislead the lender (QA L15). The admin table hides Resend for those and says why; the borrower's red note shows only for a still-current failed email, older failures stay as FAILED lines in Activity (QA L16).
+- `loans.listMine` adds `emailStatus` (failed > queued > sent > null, over all of the loan's notifications) and a `type` on each notification activity item — the borrower sees a failed email even if a later one was sent, and which email it was, without keys or error text.
+- Seed neighbors (`seed:neighbors`) are matched by email and linked to their real Clerk ids by `scripts/clerk-test-users.mjs` — signing in as one later reuses the seeded row instead of creating a duplicate. If that person already has a signed-in row, it wins and takes over the placeholder's loan-free tools; the placeholder never gets the same `clerkId` (two rows with one id break `unique()`, QA L22).
+- The seed never re-links an existing signed-in row to a new Clerk id — a row's `clerkId` only changes from a `seed_` placeholder to a real id. If a test user is deleted and re-created in Clerk, their next sign-in gets a new, empty row; that is safer than moving someone's history onto a different Clerk account.
+- Known dev-only seed edges, left as is: if `seed:overdueLoan {}` runs before the neighbors sign in, the placeholders keep that loan and stay as second rows; retiring a placeholder drops a Trusted badge that was set on it.
+- `scripts/clerk-test-users.mjs` refuses any key but `sk_test_` — it creates users, so it must never touch a production Clerk instance.

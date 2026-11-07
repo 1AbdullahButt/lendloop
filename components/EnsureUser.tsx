@@ -20,7 +20,14 @@ type Status = { userId: string; phase: Phase; error?: string };
  * page reload, the stored status no longer matches, so children unmount immediately (no frame
  * with the new account's queries running before its row exists) and ensure runs again.
  */
-export function EnsureUser({ children }: { children: ReactNode }) {
+export function EnsureUser({
+  children,
+  header,
+}: {
+  children: ReactNode;
+  /** Page chrome; told whether the user row exists, so it can hold back its own queries. */
+  header?: (ready: boolean) => ReactNode;
+}) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const { userId } = useAuth();
   const ensure = useMutation(api.users.ensure);
@@ -59,15 +66,22 @@ export function EnsureUser({ children }: { children: ReactNode }) {
     void runEnsure(userId);
   }, [isAuthenticated, userId, runEnsure]);
 
-  if (isLoading) return <LoadingState label="Signing you in…" />;
+  const pending = (body: ReactNode) => (
+    <>
+      {header?.(false)}
+      <div className="wrap py-8">{body}</div>
+    </>
+  );
+
+  if (isLoading) return pending(<LoadingState label="Signing you in…" />);
 
   if (!isAuthenticated) {
-    return (
+    return pending(
       <ErrorState
         title="You're not signed in"
         message="Your session could not be verified. Please sign in again."
         action={
-          <Link href="/sign-in" className="font-medium text-emerald-800 underline">
+          <Link href="/sign-in" className="font-bold">
             Go to sign in
           </Link>
         }
@@ -79,7 +93,7 @@ export function EnsureUser({ children }: { children: ReactNode }) {
   const current = status && status.userId === userId ? status : null;
 
   if (current?.phase === "error") {
-    return (
+    return pending(
       <ErrorState
         title="We couldn't set up your account"
         message={current.error ?? "Please try again."}
@@ -88,7 +102,12 @@ export function EnsureUser({ children }: { children: ReactNode }) {
     );
   }
 
-  if (current?.phase !== "ready") return <LoadingState label="Setting up your account…" />;
+  if (current?.phase !== "ready") return pending(<LoadingState label="Setting up your account…" />);
 
-  return <>{children}</>;
+  return (
+    <>
+      {header?.(true)}
+      {children}
+    </>
+  );
 }

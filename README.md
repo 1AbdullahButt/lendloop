@@ -2,7 +2,7 @@
 
 > Borrow what you need. Lend what you don't.
 
-LendLoop is a neighbourhood tool-lending board. Neighbours list tools, request to borrow them for a
+LendLoop is a neighborhood tool-lending board. Neighbors list tools, request to borrow them for a
 date range, approve or decline requests, and mark loans returned. Each loan change sends a
 notification, and borrowers get overdue reminders. n8n delivers both and talks to Convex over
 HMAC-signed webhooks in both directions. The stack is Next.js 15 (App Router), Clerk, Convex, n8n
@@ -13,8 +13,8 @@ HMAC-signed webhooks in both directions. The stack is Next.js 15 (App Router), C
 | Role | Can do |
 |---|---|
 | Guest | See the public list of available tools (name and category only), then sign in. |
-| Signed-in user | Browse every tool with status, condition, owner name and Trusted Lender badge, and filter by category. List, edit and delete their own tools. Request someone else's tool for up to 30 days. Cancel their own pending requests. Approve, decline and mark returned on requests for their tools. See automation activity per request ("Reminder sent 2 days ago"). |
-| Admin | Everything a user can do. Also: see all loans, tools (including removed ones), users and automation events (failed deliveries show `lastError`), remove any listing, and toggle Trusted Lender. |
+| Signed-in user | Browse every tool with status, condition, owner name (first name and last initial, e.g. "Ben C.") and Trusted Lender badge; filter by category and search by name. List, edit and delete their own tools. Request someone else's tool for up to 30 days. Cancel their own pending requests. Approve, decline and mark returned on requests for their tools. See every email sent about each request, including failed ones. |
+| Admin | Everything a user can do. Also: see all loans, tools (including removed ones), neighbors and automated emails (failed ones show why), resend a failed email, remove any listing, and toggle Trusted Lender. |
 
 Roles are stored only in the Convex `users` table. See [Admin bootstrap](#5-admin-bootstrap).
 
@@ -57,8 +57,8 @@ flowchart LR
    with `lastError`.
 5. n8n checks the signature against the raw body. It answers 401 if the check fails. Otherwise it
    routes on `type`, writes the message to the mock outbox and answers 200.
-6. The borrower's `/my/requests` view is a reactive Convex query, so "Notification sent just now"
-   appears without a refresh.
+6. The borrower's `/my/requests` view is a reactive Convex query, so the email's line in the
+   request's Activity ledger turns from SENDING to EMAIL (or FAILED) without a refresh.
 
 Overdue reminders work the other way round. Every day at 09:00, n8n makes a signed `GET` for
 overdue loans, sends one reminder per loan and writes each result back with a signed `POST`. The
@@ -66,6 +66,14 @@ write-back is keyed `<loanId>:<YYYY-MM-DD>`, so retries and re-runs never add a 
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers the modules, the function-by-function access
 table, the data model, sequence diagrams and failure modes.
+
+**Design.** The UI follows a library checkout card: paper background (`#F3F4F1`), ink text
+(`#15201B`), pine green for actions (`#1F6B4E`) and sun yellow for attention (`#F5C518`).
+Headings use Archivo, body text Atkinson Hyperlegible, and dates and statuses IBM Plex Mono, all
+self-hosted with `next/font`. Dates read US style ("Nov 8", "Nov 8–10"). Motion is limited to
+feedback: a rubber-stamp press when you send, approve, decline, return or resend, a slide-up
+borrowing card on phones, and button press scaling. All of it is off under
+`prefers-reduced-motion`. The tokens live in `app/globals.css`.
 
 ---
 
@@ -177,7 +185,31 @@ There are two ways to make someone an admin. Neither goes through a client-calla
   npx convex run users:setRole '{"userId":"<users id>","role":"user"}'
   ```
 
-### 6. Seed an overdue loan (demo)
+### 6. Test users and demo data
+
+```bash
+node scripts/clerk-test-users.mjs
+```
+
+This uses the Clerk Backend API with `CLERK_SECRET_KEY` from `.env.local` (it refuses anything
+but an `sk_test_` key, and never prints it). It creates or renames five test users in your Clerk
+development instance, with first and last names set:
+
+| User | Email | Role in the demo |
+|---|---|---|
+| Ben C. | `ben+clerk_test@example.com` | lender in the e2e run |
+| Maya R. | `maya+clerk_test@example.com` | borrower in the e2e run |
+| Marcus D., Olivia P., Jake T. | `marcus+`, `olivia+`, `jake+clerk_test@example.com` | seed neighbors |
+
+`+clerk_test` addresses are Clerk test users: no real email is sent and the verification code is
+`424242`. The script then runs the internal `seed:neighbors`, which puts Marcus, Olivia and Jake
+and two tools each on the board (jigsaw, carpet cleaner, ladder, stand mixer, tent, tile
+cutter), linked to their Clerk ids. Running it again changes nothing.
+
+The app shows every name as first name and last initial. For that, the Clerk session token must
+carry the user's name (step 1).
+
+### 7. Seed an overdue loan (demo)
 
 To see the reminder in the app, make **yourself** the borrower. Sign in once, then copy your
 `_id` from the Convex dashboard's `users` table:
@@ -186,14 +218,15 @@ To see the reminder in the app, make **yourself** the borrower. Sign in once, th
 npx convex run seed:overdueLoan '{"borrowerId":"<your users id>"}'
 ```
 
-This creates an approved loan that ended yesterday (UTC), lent by an `@example.com` seed user, so
-you can't be both sides. Then open *overdue-reminders* in n8n and click **Execute workflow**.
-"Reminder sent" appears on your `/my/requests`. Run the workflow again and nothing is sent,
-because Convex skips loans already reminded today.
+This creates an approved loan of Olivia P.'s stand mixer that ended yesterday (UTC), so you can't
+be both sides. Then open *overdue-reminders* in n8n and click **Execute workflow**. "Overdue
+reminder sent to you" appears in the loan's Activity on your `/my/requests`, under a yellow
+"due back" banner. Run the workflow again and nothing is sent, because Convex skips loans already
+reminded today.
 
-Without arguments (`npx convex run seed:overdueLoan`) the borrower is a seed user you can't sign
-in as. The reminder then shows only in **Admin → Automation events**. Pass `toolId` as well to
-reuse one of your own tools; its owner becomes the lender. The command can be run repeatedly.
+Without arguments (`npx convex run seed:overdueLoan`) the borrower is Jake T., a seed user. The
+reminder then shows only in **Admin → Automated emails**. Pass `toolId` as well to reuse one of
+your own tools; its owner becomes the lender. The command can be run repeatedly.
 
 ---
 
@@ -234,8 +267,9 @@ npm run test:kickoff  # live end-to-end run of the brief's manual checks (see be
 `npm run test:kickoff` (`qa/e2e/kickoff.spec.ts`) drives the real stack: Clerk dev instance,
 Convex dev deployment, and n8n in Docker with the workflows imported and active. Lender, borrower
 and admin sign in through `@clerk/testing` sign-in tokens, created with `CLERK_SECRET_KEY` from
-`.env.local`, so no password is typed. The test emails are `lender+clerk_test@example.com` and
-`borrower+clerk_test@example.com`; the admin is the first address in `ADMIN_EMAILS`. The run covers
+`.env.local`, so no password is typed. Ben C. (`ben+clerk_test@example.com`) lends and Maya R.
+(`maya+clerk_test@example.com`) borrows; create them first with `node scripts/clerk-test-users.mjs`
+(Setup step 6). The admin is the first address in `ADMIN_EMAILS`. The run covers
 listing, requesting, approving, both notifications sent, admin removal and Trusted Lender, and an
 overdue reminder that a second workflow run does not repeat. Screenshots go to `qa/screenshots/`,
 with every non-`example.com` email masked.
@@ -255,8 +289,13 @@ The acceptance suite (`tests/acceptance/`) maps one or more tests to each accept
 | `e2e/public-page.spec.ts`, `e2e/auth-gate.spec.ts` | AC1 public page, AC3 signed-out redirects to `/sign-in` |
 
 Backend tests use `convex-test` with `withIdentity`, fake timers pinned to `2026-11-06T12:00:00Z`
-and a stubbed `fetch`. The rendering of AC19 activity on `/my/requests` is checked by hand and recorded in
-`qa/QA-REPORT.md`.
+and a stubbed `fetch`. The rendering of AC19 activity on `/my/requests` is checked by the kickoff
+run (two EMAIL lines sent, one overdue reminder) and recorded in `qa/QA-REPORT.md`.
+
+`tests/unit/` holds the unlocked tests added later: `admin-resend.test.ts` (an admin re-queues a
+failed notification on the same row and key; one job, a single extra attempt, admin-only) and
+`my-requests-email-status.test.ts` (`loans.listMine` reports each loan's `emailStatus` and which
+email each activity entry was).
 
 **Locked tests.** A tester agent wrote the acceptance tests and `CONTRACT.md` before any app code
 existed, then created `.tests-locked`. While that file exists, a hook stops every agent from
@@ -279,6 +318,12 @@ deleting or weakening it) and locks again.
 - Ownership is checked server-side: only the owner can edit or delete a tool, only the lender can
   approve, decline or mark returned, and only the borrower can cancel. Admins moderate through
   `admin.removeListing` and do not override ownership.
+- `admin.resendEvent` is admin-only and re-queues a **failed request notification** on its
+  existing row, so the `<loanId>:<type>` key still allows one notification per transition. It
+  refuses sent or queued events (`CONFLICT`, so a double click schedules one job), emails the
+  loan has moved past (`CONFLICT`: no "new request" email after the borrower cancelled) and
+  overdue reminders (`INVALID`; n8n owns those). A resend is one extra attempt with no new retry
+  chain.
 - The Next.js middleware only redirects signed-out visitors to `/sign-in`. That is a convenience,
   not the security boundary. The `/admin` page checks `users.me.role` only to avoid an error
   flash; Convex still answers `FORBIDDEN`.
@@ -295,7 +340,7 @@ deleting or weakening it) and locks again.
 - Constant-time compare: Convex uses a full-length XOR loop (Web Crypto, default runtime), and n8n
   uses `crypto.timingSafeEqual`. The `sha256=` + 64-hex format is checked first, so the buffers
   are always the same length.
-- Both sides verify over the **raw body** bytes, never over re-serialised JSON. The n8n Webhook
+- Both sides verify over the **raw body** bytes, never over re-serialized JSON. The n8n Webhook
   node has Raw Body enabled, and if the raw body is missing it rejects the request.
 - Unsigned, wrong, stale or tampered requests get **401 with an empty body**. If the secret is
   unset, Convex also answers 401: an empty secret never means "accept everything". n8n throws
@@ -317,9 +362,12 @@ mutations deterministic and gives retries and an audit trail.
 **Failures are visible.**
 - Outbound: 1 attempt plus 3 retries (30 s, 2 min, 10 min), then `status: "failed"` with a short
   `lastError` such as "HTTP 500 from webhook". The secret and webhook URL are replaced with
-  `[redacted]`, and the text is capped at 300 chars. Admins see this in the *Automation events*
-  table. A missing webhook URL or secret counts as a failed attempt, so misconfiguration shows up
-  there too.
+  `[redacted]`, and the text is capped at 300 chars. Admins see this in the *Automated emails*
+  table, as a plain next step ("n8n couldn't be reached. Check the tunnel address.") above the
+  redacted `lastError`, with a **Resend** button while the email still describes the loan. The
+  borrower sees a FAILED line in the request's Activity, and a red note while that email is still
+  current. A missing webhook URL or secret counts as a failed attempt, so misconfiguration shows
+  up there too.
 - n8n: HTTP nodes retry 3 times, 10 s apart. Errors go to the error-handler workflow (mock outbox
   plus optional Slack or Discord). A failed reminder send is written back as `failed`.
 
@@ -344,17 +392,19 @@ The reasoning behind each choice is recorded one line at a time in
 
 ---
 
-## Data minimisation
+## Data minimization
 
 - **Public page:** `tools.listPublic` returns exactly `{ _id, name, category }` for available,
   non-removed tools. It includes no owner, condition, description or status, and a test asserts
   the keys.
 - **Signed-in lists:** these include display names and the Trusted Lender badge, but **never
   emails**. `tools.list` returns `isMine` instead of `ownerId`. Loan lists show the other party's
-  name only. `/my/requests` activity shows kind, status and time, without idempotency keys or n8n
-  error text.
-- **Admin:** `admin.listUsers` is the only function that returns other users' emails, because
-  admins need them to identify accounts.
+  name only, and the UI prints it as first name and last initial. `/my/requests` activity shows
+  kind, status, which email it was (`type`, e.g. `loan.approved`) and time, plus the loan's
+  `emailStatus`, without idempotency keys or n8n error text.
+- **Admin:** `admin.listUsers` is the only function that returns other users' emails. The admin
+  screen shows them masked (`b***@example.com`) next to the last 6 characters of the user id, so
+  two people with the same short name read differently without any full address on screen.
 - **Convex → n8n payload:** `eventId, type, loanId, toolName, recipientName, recipientEmail,
   startDate, endDate, sentAt`. It carries **only the recipient's** contact, never both parties'.
   The recipient is the party who did not act.
@@ -391,6 +441,8 @@ The reasoning behind each choice is recorded one line at a time in
   Playwright on every PR.
 - **Product and privacy:** a timezone per user (today everything is UTC), GDPR export and deletion,
   and execution data for webhooks not saved at all.
+- **Names:** shorten names to first name and last initial in the queries, not only in the UI, so
+  full names never leave Convex for other users.
 
 ---
 
@@ -398,15 +450,16 @@ The reasoning behind each choice is recorded one line at a time in
 
 ```
 app/                     Next.js routes: / (public), /sign-in, /sign-up, (signed-in)/tools, /my/*, /admin
-components/              UI: EnsureUser gate, QueryBoundary, tools, listings, loans, admin tables
-lib/                     Client helpers (labels, dates, relative time, activity text)
+components/              UI: EnsureUser gate, header, QueryBoundary, stamps, tools, listings, loans, admin
+lib/                     Client helpers (labels, US dates, short names, activity ledger)
+scripts/                 clerk-test-users.mjs (Clerk dev test users + Convex seed)
 middleware.ts            Clerk redirect for /tools, /my/*, /admin (convenience only)
 convex/
   schema.ts              users, tools, loans, automationEvents
   tools.ts loans.ts users.ts admin.ts   public API, one module per domain
   automation.ts          internal: deliver + retries, overdue list, reminder write-back
   http.ts                signed n8n -> Convex routes
-  seed.ts                internal demo fixture (overdue loan)
+  seed.ts                internal demo fixtures (neighbors and their tools, overdue loan)
   lib/                   auth, hmac, dates, events, removal, validation, views, errors
 n8n/workflows/           request-notification, overdue-reminders, error-handler (exported JSON)
 n8n/scripts/             signed-request.mjs (manual signed, forged and stale requests)

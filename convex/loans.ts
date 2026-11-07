@@ -5,7 +5,7 @@ import { requireUser } from "./lib/auth";
 import { daysBetween, isIsoDate, rangesOverlap, todayUtc } from "./lib/dates";
 import { appError } from "./lib/errors";
 import { queueLoanEvent } from "./lib/events";
-import { loanActivity, makeLookups } from "./lib/views";
+import { loanActivity, loanAutomation, makeLookups } from "./lib/views";
 
 /** endDate - startDate may be at most this many days (start + 30 is allowed). */
 export const MAX_LOAN_DAYS = 30;
@@ -136,7 +136,10 @@ export const markReturned = mutation({
   },
 });
 
-/** Requests I made, with automation activity for "/my/requests" (AC19). */
+/**
+ * Requests I made, with automation activity for "/my/requests" (AC19). `emailStatus` lets
+ * the borrower see a failed email without reading the whole log.
+ */
 export const listMine = query({
   args: {},
   handler: async (ctx) => {
@@ -151,6 +154,7 @@ export const listMine = query({
       loans.map(async (l) => {
         const tool = await lookups.tool(l.toolId);
         const lender = await lookups.person(l.lenderId);
+        const { activity, emailStatus } = await loanAutomation(ctx, l._id);
         return {
           _id: l._id,
           toolId: l.toolId,
@@ -164,7 +168,8 @@ export const listMine = query({
           createdAt: l.createdAt,
           decidedAt: l.decidedAt,
           returnedAt: l.returnedAt,
-          activity: await loanActivity(ctx, l._id),
+          activity,
+          emailStatus,
         };
       }),
     );

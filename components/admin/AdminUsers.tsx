@@ -1,51 +1,81 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
+import { shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
-import { EmptyState, InlineError, LoadingState } from "../ui/States";
-import { AdminTable, Cell } from "./AdminTable";
+import { TrustedBadge } from "../ui/Badges";
+import { Button } from "../ui/Button";
+import { EmptyState, InlineError } from "../ui/States";
+import { AdminSection, AdminTable } from "./AdminTable";
 
 type AdminUser = FunctionReturnType<typeof api.admin.listUsers>[number];
 
+/**
+ * "b***@example.com · #3f9k2a": the masked email helps an admin recognize someone, and the
+ * id suffix tells two "Ben C." at the same provider (or two with no email) apart. Six id
+ * characters are not guaranteed unique, but a clash between two given rows is around 1 in
+ * 100,000. No full address is printed on screen.
+ */
+function maskEmail(email: string): string {
+  const at = email.indexOf("@");
+  if (at < 1) return "no email";
+  return `${email.charAt(0)}***${email.slice(at)}`;
+}
+
+function accountHint(user: AdminUser): string {
+  return `${maskEmail(user.email)} · #${user._id.slice(-6)}`;
+}
+
 function TrustedToggle({ user }: { user: AdminUser }) {
   const setTrusted = useAction(useMutation(api.admin.setTrustedLender));
+  const name = shortName(user.name);
+  const who = `${name} (${accountHint(user)})`;
   return (
-    <div>
-      <label className="inline-flex cursor-pointer items-center gap-2">
-        <input
-          type="checkbox"
-          checked={user.trustedLender}
+    <span className="inline-flex flex-col items-end gap-1">
+      <span className="inline-flex items-center justify-end gap-2.5">
+        {user.trustedLender ? <TrustedBadge compact /> : null}
+        <Button
+          size="sm"
           disabled={setTrusted.pending}
-          onChange={(e) => void setTrusted.run({ userId: user._id, trusted: e.target.checked })}
-          className="h-4 w-4 accent-violet-700"
-        />
-        <span>Trusted Lender</span>
-        <span className="sr-only">for {user.name}</span>
-      </label>
+          onClick={() => void setTrusted.run({ userId: user._id, trusted: !user.trustedLender })}
+        >
+          {user.trustedLender ? "Remove badge" : "Mark trusted"}
+          <span className="sr-only"> for {who}</span>
+        </Button>
+      </span>
       <InlineError message={setTrusted.error} />
-    </div>
+    </span>
   );
 }
 
-export function AdminUsers() {
-  const users = useQuery(api.admin.listUsers);
-  if (users === undefined) return <LoadingState label="Loading users…" />;
-  if (users.length === 0) return <EmptyState title="No users yet" />;
+/** Names, badges and a masked email plus id suffix only: full addresses stay out of the admin screen (data minimization). */
+export function AdminUsers({ users, toolCounts }: { users: AdminUser[]; toolCounts: Map<string, number> }) {
   return (
-    <AdminTable caption="Users" headers={["Name", "Email", "Role", "Badge"]}>
-      {users.map((user) => (
-        <tr key={user._id}>
-          <Cell>{user.name}</Cell>
-          <Cell className="text-stone-600">{user.email}</Cell>
-          {/* Read-only: roles change only via ADMIN_EMAILS or the users.setRole dashboard mutation. */}
-          <Cell className="capitalize">{user.role}</Cell>
-          <Cell>
-            <TrustedToggle user={user} />
-          </Cell>
-        </tr>
-      ))}
-    </AdminTable>
+    <AdminSection id="neighbors" title="Neighbors" note="Trusted Lender is a badge on the person, shown next to all their tools.">
+      {users.length === 0 ? (
+        <EmptyState title="No neighbors yet" />
+      ) : (
+        <AdminTable caption="Neighbors" minWidth={440} headers={["Name", "Tools", { label: "Trusted Lender", right: true }]}>
+          {users.map((user) => (
+            <tr key={user._id} data-role={user.role}>
+              <td>
+                <span className="inline-flex flex-wrap items-center gap-2 font-bold">
+                  {shortName(user.name)}
+                  {/* Read-only: roles change only via ADMIN_EMAILS or the users.setRole dashboard mutation. */}
+                  {user.role === "admin" ? <span className="stamp stamp-sm s-cancelled">Admin</span> : null}
+                </span>
+                <span className="mono block text-xs text-ink-3">{accountHint(user)}</span>
+              </td>
+              <td className="num">{toolCounts.get(user._id) ?? 0}</td>
+              <td className="text-right">
+                <TrustedToggle user={user} />
+              </td>
+            </tr>
+          ))}
+        </AdminTable>
+      )}
+    </AdminSection>
   );
 }

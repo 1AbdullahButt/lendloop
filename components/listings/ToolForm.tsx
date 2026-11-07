@@ -3,9 +3,7 @@
 import { useId, useState, type FormEvent } from "react";
 import {
   CATEGORIES,
-  CONDITIONS,
   categoryLabel,
-  conditionLabel,
   TOOL_DESCRIPTION_MAX,
   TOOL_NAME_MAX,
   type Category,
@@ -21,9 +19,14 @@ export type ToolFormValues = {
   description: string;
 };
 
-const EMPTY: ToolFormValues = { name: "", category: "hand_tools", condition: "good", description: "" };
+const EMPTY: ToolFormValues = { name: "", category: "power_tools", condition: "good", description: "" };
 
-const fieldClass = "mt-1 block w-full rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm";
+const CONDITION_OPTIONS: Array<{ value: Condition; label: string; hint: string }> = [
+  { value: "new", label: "New", hint: "Barely used" },
+  { value: "good", label: "Good", hint: "Normal wear" },
+  { value: "fair", label: "Fair", hint: "Scuffed, works fine" },
+  { value: "worn", label: "Worn", hint: "Shows its age, works" },
+];
 
 type Props = {
   initial?: ToolFormValues;
@@ -39,19 +42,29 @@ type Props = {
 export function ToolForm({ initial, submitLabel, pending, error, onSubmit, onCancel }: Props) {
   const id = useId();
   const [values, setValues] = useState<ToolFormValues>(initial ?? EMPTY);
+  const [touched, setTouched] = useState(false);
   const set = <K extends keyof ToolFormValues>(key: K, value: ToolFormValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }));
+  const nameMissing = values.name.trim().length === 0;
+  const nameBad = touched && nameMissing;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (nameMissing) {
+      setTouched(true);
+      return;
+    }
     const ok = await onSubmit(values);
-    if (ok && !initial) setValues(EMPTY);
+    if (ok && !initial) {
+      setValues(EMPTY);
+      setTouched(false);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <div>
-        <label htmlFor={`${id}-name`} className="text-sm font-medium">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4.5" aria-label={initial ? `Edit ${initial.name}` : "List a tool"}>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={`${id}-name`} className="field-label">
           Name
         </label>
         <input
@@ -59,74 +72,85 @@ export function ToolForm({ initial, submitLabel, pending, error, onSubmit, onCan
           required
           maxLength={TOOL_NAME_MAX}
           value={values.name}
-          onChange={(e) => set("name", e.target.value)}
-          aria-describedby={`${id}-name-hint`}
-          className={fieldClass}
+          placeholder="e.g. Leaf blower"
+          onChange={(e) => {
+            set("name", e.target.value);
+            setTouched(true);
+          }}
+          aria-invalid={nameBad}
+          aria-describedby={`${id}-name-help`}
+          className="field-input"
         />
-        <p id={`${id}-name-hint`} className="mt-1 text-xs text-stone-500">
-          1–{TOOL_NAME_MAX} characters.
-        </p>
+        <span id={`${id}-name-help`} className={`flex justify-between gap-2 text-[13px] ${nameBad ? "text-brick" : "text-ink-2"}`}>
+          <span>{nameBad ? "Give it a name so neighbors can find it." : "What neighbors will search for."}</span>
+          <span className="mono">
+            {values.name.length}/{TOOL_NAME_MAX}
+          </span>
+        </span>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor={`${id}-category`} className="text-sm font-medium">
-            Category
-          </label>
-          <select
-            id={`${id}-category`}
-            value={values.category}
-            onChange={(e) => set("category", e.target.value as Category)}
-            className={fieldClass}
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {categoryLabel(c)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor={`${id}-condition`} className="text-sm font-medium">
-            Condition
-          </label>
-          <select
-            id={`${id}-condition`}
-            value={values.condition}
-            onChange={(e) => set("condition", e.target.value as Condition)}
-            className={fieldClass}
-          >
-            {CONDITIONS.map((c) => (
-              <option key={c} value={c}>
-                {conditionLabel(c)}
-              </option>
-            ))}
-          </select>
-        </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={`${id}-category`} className="field-label">
+          Category
+        </label>
+        <select
+          id={`${id}-category`}
+          value={values.category}
+          onChange={(e) => set("category", e.target.value as Category)}
+          className="field-input"
+        >
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {categoryLabel(c)}
+            </option>
+          ))}
+        </select>
       </div>
-      <div>
-        <label htmlFor={`${id}-description`} className="text-sm font-medium">
-          Description <span className="font-normal text-stone-500">(optional)</span>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="field-label mb-1.5">Condition</legend>
+        <div className="grid grid-cols-2 gap-2">
+          {CONDITION_OPTIONS.map((c) => (
+            <label key={c.value} className="opt">
+              <input
+                type="radio"
+                name={`${id}-condition`}
+                value={c.value}
+                checked={values.condition === c.value}
+                onChange={() => set("condition", c.value)}
+              />
+              <span className="font-bold">{c.label}</span>
+              <span className="text-[13px] text-ink-2">{c.hint}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={`${id}-description`} className="field-label">
+          Description <span className="font-normal text-ink-2">(optional)</span>
         </label>
         <textarea
           id={`${id}-description`}
-          rows={3}
           maxLength={TOOL_DESCRIPTION_MAX}
           value={values.description}
+          placeholder="What it comes with, anything to know before using it."
           onChange={(e) => set("description", e.target.value)}
-          aria-describedby={`${id}-description-hint`}
-          className={fieldClass}
+          aria-describedby={`${id}-description-count`}
+          className="field-input"
         />
-        <p id={`${id}-description-hint`} className="mt-1 text-xs text-stone-500">
-          {values.description.length}/{TOOL_DESCRIPTION_MAX} characters.
-        </p>
+        <span id={`${id}-description-count`} className="mono text-right text-[13px] text-ink-2">
+          {values.description.length}/{TOOL_DESCRIPTION_MAX}
+        </span>
       </div>
+
       <InlineError message={error} />
-      <div className="flex gap-2">
-        <Button type="submit" variant="primary" disabled={pending}>
+      <div className="flex flex-wrap gap-2.5">
+        <Button type="submit" variant="primary" size="lg" className="flex-1" disabled={pending || nameMissing}>
           {pending ? "Saving…" : submitLabel}
         </Button>
         {onCancel ? (
-          <Button onClick={onCancel} disabled={pending}>
+          <Button size="lg" onClick={onCancel} disabled={pending}>
             Cancel
           </Button>
         ) : null}
