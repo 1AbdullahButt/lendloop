@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { typeFromKey, type LoanEventType } from "./events";
+import { displayName } from "./public";
 
 export const ACTIVITY_LIMIT = 10;
 
@@ -16,7 +17,7 @@ export type Activity = {
 /** Worst state across a loan's notification emails; null when none were queued yet. */
 export type EmailStatus = "sent" | "failed" | "queued" | null;
 
-/** Public display info only: name and badge, never email. */
+/** What another user looks like in any response: "Ben C." and the badge, never an email. */
 export type PersonView = { name: string; trusted: boolean };
 
 const UNKNOWN: PersonView = { name: "Unknown neighbour", trusted: false };
@@ -30,7 +31,7 @@ export function makeLookups(ctx: QueryCtx) {
       if (!people.has(id)) {
         people.set(
           id,
-          ctx.db.get(id).then((u) => (u ? { name: u.name, trusted: u.trustedLender } : UNKNOWN)),
+          ctx.db.get(id).then((u) => (u ? { name: displayName(u.name), trusted: u.trustedLender } : UNKNOWN)),
         );
       }
       return people.get(id)!;

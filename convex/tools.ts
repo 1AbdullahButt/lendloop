@@ -38,7 +38,6 @@ export const list = query({
           condition: t.condition,
           description: t.description,
           status: t.status,
-          createdAt: t.createdAt,
           ownerName: owner.name,
           ownerTrusted: owner.trusted,
           isMine: t.ownerId === me._id,
@@ -70,13 +69,10 @@ export const listMine = query({
           open.map(async (l) => {
             const borrower = await lookups.person(l.borrowerId);
             return {
-              _id: l._id,
               status: l.status,
               startDate: l.startDate,
               endDate: l.endDate,
-              createdAt: l.createdAt,
               borrowerName: borrower.name,
-              borrowerTrusted: borrower.trusted,
             };
           }),
         );
@@ -87,7 +83,6 @@ export const listMine = query({
           condition: t.condition,
           description: t.description,
           status: t.status,
-          createdAt: t.createdAt,
           pendingCount: open.filter((l) => l.status === "pending").length,
           requests,
         };

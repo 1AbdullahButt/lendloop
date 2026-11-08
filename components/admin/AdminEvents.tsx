@@ -5,6 +5,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { splitFailures } from "@/lib/adminEvents";
 import { formatDateTime } from "@/lib/dates";
 import { isCurrentEmail } from "@/lib/loanEmail";
 import { datesOverlap } from "@/convex/lib/clash";
@@ -31,17 +32,13 @@ const TYPE_LABEL: Record<string, string> = {
   "loan.dates_taken": "Dates taken",
 };
 
-/**
- * The key is `<loanId>:<type>` for notifications (plus `:<blockerLoanId>` for "dates taken")
- * and `<loanId>:<YYYY-MM-DD>` for reminders.
- */
+/** Convex parses the idempotency key and sends only the type, so keys never reach the browser. */
 function eventType(event: AdminEvent): string | null {
-  return event.kind === "request_notification" ? (event.idempotencyKey.split(":")[1] ?? null) : null;
+  return event.type;
 }
 
 function blockerId(event: AdminEvent): string | null {
-  const parts = event.idempotencyKey.split(":");
-  return parts[1] === "loan.dates_taken" ? (parts[2] ?? null) : null;
+  return event.blockerLoanId;
 }
 
 export function emailLabel(event: AdminEvent): string {
@@ -160,9 +157,37 @@ export function AdminEvents({ events, loans }: { events: AdminEvent[]; loans: Ma
   const filterId = useId();
   const [failedOnly, setFailedOnly] = useState(false);
   const [resent, setResent] = useState<Record<string, true>>({});
+  // Failures the loan has moved past can't be resent, so they wait collapsed below the table
+  // instead of crowding the ones an admin can act on. Nothing is deleted.
+  const { active, older } = splitFailures(events, loans);
   // A row resent on this visit stays in the "failed only" view, so its new status shows and
   // focus has a cell to land on.
-  const shown = failedOnly ? events.filter((e) => e.status === "failed" || resent[e._id]) : events;
+  const shown = failedOnly ? active.filter((e) => e.status === "failed" || resent[e._id]) : active;
+  const rows = (list: AdminEvent[]) =>
+    list.map((event) => {
+      const loan = loans.get(event.loanId);
+      return (
+        <tr key={event._id} className={event.status === "failed" ? "bg-[#FCF1EF]" : undefined}>
+          <td className="num">{formatDateTime(event.createdAt, zone)}</td>
+          <td>{emailLabel(event)}</td>
+          <td>{loan?.toolName ?? "—"}</td>
+          <td>{recipient(event, loan)}</td>
+          <td className="num">
+            {event.attempts <= MAX_ATTEMPTS ? `${event.attempts} of ${MAX_ATTEMPTS}` : event.attempts}
+          </td>
+          <td>
+            <StatusCell
+              event={event}
+              loan={loan}
+              blocker={blockerId(event) ? loans.get(blockerId(event)!) : undefined}
+              resentHere={Boolean(resent[event._id])}
+              onResent={() => setResent((s) => ({ ...s, [event._id as Id<"automationEvents">]: true }))}
+            />
+          </td>
+        </tr>
+      );
+    });
+  const headers = ["When", "Email", "Tool", "Sent to", "Tries", "Status"];
   return (
     <AdminSection
       id="emails"
@@ -180,34 +205,25 @@ export function AdminEvents({ events, loans }: { events: AdminEvent[]; loans: Ma
         Show failed only
       </label>
       {shown.length === 0 ? (
-        <EmptyState title={failedOnly ? "No failed emails" : "No automated emails yet"} />
+        <EmptyState title={failedOnly ? "No failed emails to act on" : "No automated emails yet"} />
       ) : (
-        <AdminTable caption="Automated emails, newest first" headers={["When", "Email", "Tool", "Sent to", "Tries", "Status"]}>
-          {shown.map((event) => {
-            const loan = loans.get(event.loanId);
-            return (
-              <tr key={event._id} className={event.status === "failed" ? "bg-[#FCF1EF]" : undefined}>
-                <td className="num">{formatDateTime(event.createdAt, zone)}</td>
-                <td>{emailLabel(event)}</td>
-                <td>{loan?.toolName ?? "—"}</td>
-                <td>{recipient(event, loan)}</td>
-                <td className="num">
-                  {event.attempts <= MAX_ATTEMPTS ? `${event.attempts} of ${MAX_ATTEMPTS}` : event.attempts}
-                </td>
-                <td>
-                  <StatusCell
-                    event={event}
-                    loan={loan}
-                    blocker={blockerId(event) ? loans.get(blockerId(event)!) : undefined}
-                    resentHere={Boolean(resent[event._id])}
-                    onResent={() => setResent((s) => ({ ...s, [event._id as Id<"automationEvents">]: true }))}
-                  />
-                </td>
-              </tr>
-            );
-          })}
+        <AdminTable caption="Automated emails, newest first" headers={headers}>
+          {rows(shown)}
         </AdminTable>
       )}
+      {older.length > 0 ? (
+        <details className="rounded-xl border-2 border-line-soft bg-white px-4 py-3">
+          <summary className="min-h-11 cursor-pointer content-center font-bold text-ink-2">
+            Older failures ({older.length})
+          </summary>
+          <p className="mt-1 mb-3 text-sm text-ink-2">
+            The loan has moved on since these failed, so there is nothing to resend. Kept for the record.
+          </p>
+          <AdminTable caption="Older failed emails, newest first" headers={headers}>
+            {rows(older)}
+          </AdminTable>
+        </details>
+      ) : null}
     </AdminSection>
   );
 }

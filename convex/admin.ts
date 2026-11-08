@@ -8,6 +8,7 @@ import { blockerFromKey, typeFromKey } from "./lib/events";
 import { datesOverlap } from "./lib/clash";
 import { softRemoveTool } from "./lib/removal";
 import { makeLookups } from "./lib/views";
+import { displayName, maskEmail } from "./lib/public";
 import { eventKind, eventStatus } from "./schema";
 
 const DEFAULT_EVENT_LIMIT = 200;
@@ -24,12 +25,17 @@ export const listAllLoans = query({
         const borrower = await lookups.person(l.borrowerId);
         const lender = await lookups.person(l.lenderId);
         return {
-          ...l,
+          _id: l._id,
+          toolId: l.toolId,
           toolName: tool?.name ?? "Deleted tool",
           toolRemoved: !tool || tool.removedAt !== undefined,
           borrowerName: borrower.name,
           lenderName: lender.name,
           lenderTrusted: lender.trusted,
+          startDate: l.startDate,
+          endDate: l.endDate,
+          status: l.status,
+          decidedAt: l.decidedAt,
         };
       }),
     );
@@ -46,7 +52,7 @@ export const listTools = query({
     return await Promise.all(
       tools.map(async (t) => {
         const owner = await lookups.person(t.ownerId);
-        return { ...t, ownerName: owner.name, ownerTrusted: owner.trusted };
+        return { _id: t._id, ownerId: t.ownerId, name: t.name, status: t.status, removedAt: t.removedAt, ownerName: owner.name };
       }),
     );
   },
@@ -56,7 +62,16 @@ export const listUsers = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    return await ctx.db.query("users").collect();
+    // Short names and a masked email: enough to recognize and moderate an account, while the
+    // full address never reaches the browser.
+    const users = await ctx.db.query("users").collect();
+    return users.map((u) => ({
+      _id: u._id,
+      name: displayName(u.name),
+      emailHint: maskEmail(u.email),
+      role: u.role,
+      trustedLender: u.trustedLender,
+    }));
   },
 });
 
@@ -74,7 +89,19 @@ export const listAutomationEvents = query({
     return events
       .filter((e) => (!args.status || e.status === args.status) && (!args.kind || e.kind === args.kind))
       .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, limit);
+      .slice(0, limit)
+      .map((e) => ({
+        _id: e._id,
+        loanId: e.loanId,
+        kind: e.kind,
+        // Parsed here so the browser never sees idempotency keys.
+        type: e.kind === "request_notification" ? typeFromKey(e.idempotencyKey) : null,
+        blockerLoanId: blockerFromKey(e.idempotencyKey),
+        status: e.status,
+        attempts: e.attempts,
+        lastError: e.lastError,
+        createdAt: e.createdAt,
+      }));
   },
 });
 

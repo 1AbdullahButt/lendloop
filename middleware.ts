@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { cspDirectives, cspReportOnly } from "./lib/securityHeaders";
 
 // Convenience only: this redirects signed-out visitors before the page loads.
 // It is NOT the security boundary — every Convex function re-checks identity and role.
@@ -15,7 +16,14 @@ export default clerkMiddleware(
     signIn.searchParams.set("redirect_url", req.nextUrl.pathname + req.nextUrl.search);
     return NextResponse.redirect(signIn);
   },
-  { signInUrl: "/sign-in", signUpUrl: "/sign-up" },
+  {
+    signInUrl: "/sign-in",
+    signUpUrl: "/sign-up",
+    // Per-request nonce + 'strict-dynamic' for scripts, on top of Clerk's defaults
+    // (lib/securityHeaders.ts). Clerk also sets the CSP on the request, so Next nonces its own
+    // inline scripts. CSP_REPORT_ONLY=1 reports instead of blocking (see SECURITY.md).
+    contentSecurityPolicy: { strict: true, directives: cspDirectives(), reportOnly: cspReportOnly() },
+  },
 );
 
 export const config = {

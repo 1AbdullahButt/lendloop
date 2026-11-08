@@ -5,7 +5,8 @@
 //   node --env-file=n8n/.env n8n/scripts/signed-request.mjs <command> ...
 //
 // Commands:
-//   notify <webhookUrl> [--type loan.requested] [--bad-signature | --stale | --unsigned]
+//   notify <webhookUrl> [--type loan.requested] [--event-id <id>] [--bad-signature | --stale | --unsigned]
+//       --event-id reuses an id, to replay a delivery: the second one must send nothing.
 //       POST a sample notification to the n8n request-notification webhook
 //       (secret CONVEX_TO_N8N_SECRET). Expect 200, or 401 with the flags.
 //   overdue
@@ -60,7 +61,7 @@ async function notify(args, flags) {
   const secret = requireEnv("CONVEX_TO_N8N_SECRET");
   // Shape matches SPEC 6.1; the address is a placeholder on the reserved example.com domain.
   const body = JSON.stringify({
-    eventId: `test-${randomUUID()}`,
+    eventId: argValue(args, "--event-id", `test-${randomUUID()}`),
     type: argValue(args, "--type", "loan.requested"),
     loanId: "test-loan",
     toolName: "Cordless drill",
@@ -99,7 +100,9 @@ async function reminderStatus(args, flags) {
 }
 
 const [command, ...rest] = process.argv.slice(2);
-const flags = new Set(rest.filter((a) => a.startsWith("--") && a !== "--type"));
+// Options that take a value; everything else starting with "--" is an on/off flag.
+const VALUED = new Set(["--type", "--event-id"]);
+const flags = new Set(rest.filter((a) => a.startsWith("--") && !VALUED.has(a)));
 const args = rest.filter((a) => !flags.has(a));
 
 const commands = {
