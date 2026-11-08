@@ -589,82 +589,108 @@
     }
   }
 
-  /* Incoming: request calendar rows. */
-  .track-row {
+  /*
+   * Incoming: the clash mini calendar. One column per day (min 40px; wider than the screen it
+   * scrolls inside .cc-scroll), a row per person. Text is 13px or more and AA on white.
+   */
+  .cc-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cc-grid {
     display: grid;
-    grid-template-columns: 110px minmax(0, 1fr);
-    gap: 10px;
     align-items: center;
+    row-gap: 6px;
+    min-width: max-content;
   }
-  /* One grid of whole days: ticks, the today column and bars share the same cell edges. */
-  .track {
-    position: relative;
-    height: 30px;
-    border-radius: 6px;
-    background: var(--color-paper);
-  }
-  .track-tick {
-    position: absolute;
-    top: 6px;
-    bottom: 6px;
-    width: 1px;
-    background: color-mix(in srgb, var(--color-ink) 12%, transparent);
-  }
-  .track-tick-strong {
-    top: 2px;
-    bottom: 2px;
-    background: color-mix(in srgb, var(--color-ink) 28%, transparent);
-  }
-  .track-today {
-    position: absolute;
-    top: -3px;
-    bottom: -3px;
-    background: color-mix(in srgb, var(--color-sun) 22%, transparent);
-    border-left: 2px solid var(--color-ink);
-  }
-  .track-bar {
-    position: absolute;
-    top: 4px;
-    bottom: 4px;
-    box-sizing: border-box;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-  }
-  .track-bar-label {
+  .cc-today,
+  .cc-month {
     font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1;
-    padding: 0 5px;
+    font-size: 13px;
+    line-height: 1.2;
+    text-align: center;
     white-space: nowrap;
   }
-  .track-bar-label-out {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    padding: 0;
+  .cc-today {
+    font-weight: 700;
+    color: var(--color-ink);
+    min-height: 16px;
+  }
+  .cc-month {
+    color: var(--color-ink-2);
+    min-height: 16px;
+  }
+  .cc-day {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--color-ink);
+    padding: 3px 0;
+    border-bottom: 1px solid var(--color-line-soft);
+  }
+  .cc-day-today {
+    border-bottom: 3px solid var(--color-ink);
+  }
+  .cc-name {
+    font-size: 15px;
+    font-weight: 700;
+    padding-right: 12px;
+    white-space: nowrap;
+  }
+  .cc-cell {
+    height: 28px;
+    box-sizing: border-box;
+  }
+  .cc-approved {
+    background: #1f6b4e;
+  }
+  .cc-waiting {
+    background: #fff4cf;
+    border-top: 2px solid #8a6100;
+    border-bottom: 2px solid #8a6100;
+  }
+  .cc-waiting.cc-start {
+    border-left: 2px solid #8a6100;
+  }
+  .cc-waiting.cc-end {
+    border-right: 2px solid #8a6100;
+  }
+  .cc-start {
+    border-top-left-radius: 5px;
+    border-bottom-left-radius: 5px;
+  }
+  .cc-end {
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
+  }
+  .cc-clash {
+    background-image: repeating-linear-gradient(135deg, #8a2a1e 0 3px, transparent 3px 7px);
+  }
+  .cc-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    font-size: 13px;
     color: var(--color-ink-2);
   }
-  .track-range-phone {
-    display: none;
+  .cc-legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
-  /* Phones: the name and dates sit above the strip; only week ticks remain. */
-  @media (max-width: 560px) {
-    .track-row {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 4px;
-    }
-    .track-range-phone {
-      display: inline;
-    }
-    .track-bar-label {
-      display: none;
-    }
-    .track-tick:not(.track-tick-strong) {
-      display: none;
-    }
+  .cc-swatch {
+    display: inline-block;
+    width: 22px;
+    height: 14px;
+    border-radius: 3px;
+  }
+  .cc-swatch.cc-waiting {
+    border: 2px solid #8a6100;
+  }
+  .cc-swatch.cc-clash {
+    background-color: #fbe9e6;
   }
 }
 

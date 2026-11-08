@@ -115,6 +115,23 @@ async function open(page: Page, path: string): Promise<void> {
   await expect(page.getByText("Setting up your account")).toHaveCount(0, { timeout: 30_000 });
 }
 
+// Loans this run creates outside its own tools (the seeded overdue loan), for the cleanup below.
+const extraLoans: string[] = [];
+
+/** Leaves no test listings or open loans behind (seed:cleanupRun queues no emails). */
+test.afterAll(() => {
+  try {
+    const toolIds = convexData("tools")
+      .filter((t) => t.name === DRILL || t.name === SPARE)
+      .map((t) => t._id);
+    const args = JSON.stringify({ toolIds, loanIds: extraLoans });
+    const out = sh(`npx convex run seed:cleanupRun "${args.replace(/"/g, '\\"')}"`);
+    console.log(`[cleanup] ${out.trim().replace(/\s+/g, " ")}`);
+  } catch (err) {
+    console.log(`[cleanup] failed: ${(err as Error).message.split("\n")[0]}`);
+  }
+});
+
 test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
 });
@@ -152,8 +169,11 @@ test("KICKOFF 4: lend, borrow, approve, notify, moderate, remind once", async ({
   await test.step("A approves", async () => {
     await open(lender, "/my/incoming");
     await lender.getByRole("button", { name: new RegExp(`^Approve .+'s request for ${escapeRe(DRILL)}$`) }).click();
-    const group = lender.getByRole("region", { name: DRILL, exact: true });
-    await expect(group.getByText("approved", { exact: false }).first()).toBeVisible();
+    // The decided request leaves the waiting list: a note at the top says who was emailed, and
+    // the loan shows under "Out on loan".
+    await expect(lender.getByRole("status").filter({ hasText: `request for ${DRILL}` })).toContainText("has been emailed");
+    const outCard = lender.getByRole("region", { name: new RegExp(`^${escapeRe(DRILL)} with `) });
+    await expect(outCard.getByText("Approved", { exact: true })).toBeVisible();
     await shot(lender, "03-lender-approved");
   });
 
@@ -207,6 +227,7 @@ test("KICKOFF 4: lend, borrow, approve, notify, moderate, remind once", async ({
   await test.step("Overdue reminder is sent once, not twice", async () => {
     const out = sh(`npx convex run seed:overdueLoan "{\\"borrowerId\\":\\"${borrowerId}\\"}"`);
     const seeded = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1)) as { loanId: string };
+    extraLoans.push(seeded.loanId);
     const reminders = () =>
       convexData("automationEvents").filter((e) => e.kind === "overdue_reminder" && e.loanId === seeded.loanId);
 

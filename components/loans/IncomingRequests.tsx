@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { askedLabel, daysBetween, daysOverdue, formatDate, formatDateRange, formatDayLong, todayIn } from "@/lib/dates";
-import { calendarStrip } from "@/lib/calendarStrip";
+import { askedLabel, dateLine, daysOverdue, formatDate, formatDateRange, formatDayLong, todayIn } from "@/lib/dates";
+import { clashCalendar, type ClashCalendar } from "@/lib/clashCalendar";
 import { newlyBlocked } from "@/convex/lib/clash";
 import { verdictNote } from "@/lib/loanText";
 import { firstName, shortName } from "@/lib/names";
@@ -21,7 +21,6 @@ import { OverdueTag, Stamp } from "../ui/Stamp";
 import { EmptyState, InlineError, LoadingState, Notice } from "../ui/States";
 
 type Loan = FunctionReturnType<typeof api.loans.listIncoming>[number];
-type Verdict = "approved" | "declined";
 
 function overlaps(a: { startDate: string; endDate: string }, b: { startDate: string; endDate: string }) {
   return a.startDate <= b.endDate && b.startDate <= a.endDate;
@@ -45,82 +44,69 @@ function blockedReason(loan: Loan, all: Loan[], today: string): string | null {
 }
 
 /**
- * Day strip for one tool on a grid of whole days (lib/calendarStrip.ts): light day ticks, a
- * shaded today column, and each request or approved loan as a bar labeled with its dates.
- * On phones (CSS) the in-bar labels hide and each row shows its dates under the name.
+ * Mini calendar, only when requests on a tool clash (lib/clashCalendar.ts): one cell per day
+ * with its number, the month where it starts or changes, a row per person, approved as a solid
+ * bar, waiting as an outlined bar, and the clashing days hatched. Wider than the screen, it
+ * scrolls sideways inside its box.
  */
-function Calendar({ tool, rows, today }: { tool: string; rows: Loan[]; today: string }) {
-  const strip = calendarStrip(today, rows);
-  const label = `${tool} calendar: ${rows
-    .map((r) => `${shortName(r.borrowerName)} ${formatDateRange(r.startDate, r.endDate)}, ${r.status}`)
-    .join("; ")}. Today is ${formatDate(today)}.`;
-  const grid = (
-    <>
-      {strip.ticks.map((tick) => (
-        <span key={tick.left} className={`track-tick${tick.strong ? " track-tick-strong" : ""}`} style={{ left: `${tick.left}%` }} />
-      ))}
-      <span className="track-today" style={{ left: `${strip.today.left}%`, width: `${strip.today.width}%` }} />
-    </>
-  );
+function ClashCal({ tool, cal, today }: { tool: string; cal: ClashCalendar<Loan>; today: string }) {
+  const clashDays = cal.days.filter((_, i) => cal.rows.some((r) => r.clash[i])).map((d) => formatDate(d.iso));
+  const label = `${tool} calendar: ${cal.rows
+    .map((r) => `${shortName(r.req.borrowerName)} ${formatDateRange(r.req.startDate, r.req.endDate)}, ${r.req.status === "approved" ? "approved" : "waiting"}`)
+    .join("; ")}. Clashing days: ${clashDays.join(", ")}.${cal.days.some((d) => d.today) ? ` Today is ${formatDate(today)}.` : ""}`;
+  const cols = { gridTemplateColumns: `minmax(64px, max-content) repeat(${cal.days.length}, minmax(40px, 1fr))` };
   return (
-    <div role="img" aria-label={label} className="flex flex-col gap-1.5">
-      {rows.map((r) => {
-        const look =
-          r.status === "approved"
-            ? { fill: "#1F6B4E", line: "#1F6B4E", style: "solid", text: "#FFFFFF" }
-            : r.status === "declined"
-              ? { fill: "#FFFFFF", line: "#8A2A1E", style: "dashed", text: "#8A2A1E" }
-              : { fill: "#F5C518", line: "#6B4E00", style: "solid", text: "#15201B" };
-        const bar = strip.bar(r.startDate, r.endDate);
-        const range = formatDateRange(r.startDate, r.endDate);
-        return (
-          <div key={r._id} className="track-row">
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-bold">{firstName(r.borrowerName)}</span>
-              <span className="track-range-phone mono text-xs text-ink-2">{range}</span>
-            </span>
-            <div className="track">
-              {grid}
-              <div
-                className="track-bar"
-                style={{
-                  left: `${bar.left}%`,
-                  width: `${bar.width}%`,
-                  background: look.fill,
-                  border: `2px ${look.style} ${look.line}`,
-                  color: look.text,
-                }}
-              >
-                {bar.label === "inside" ? <span className="track-bar-label">{range}</span> : null}
-              </div>
-              {bar.label === "after" ? (
-                <span className="track-bar-label track-bar-label-out" style={{ left: `calc(${bar.left + bar.width}% + 6px)` }}>
-                  {range}
-                </span>
-              ) : bar.label === "before" ? (
-                <span className="track-bar-label track-bar-label-out" style={{ right: `calc(${100 - bar.left}% + 6px)` }}>
-                  {range}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-      <div className="track-row" aria-hidden="true">
-        <span />
-        <div className="mono relative h-4 text-xs text-ink-2">
-          {strip.labels.map((l) => (
-            <span
-              key={l.day}
-              className={`absolute whitespace-nowrap ${l.text === "TODAY" ? "font-semibold text-ink" : ""} ${
-                { start: "", center: "-translate-x-1/2", end: "-translate-x-full" }[l.align]
-              }`}
-              style={{ left: `${l.left}%` }}
-            >
-              {l.text === "TODAY" ? "TODAY" : formatDate(l.day).toUpperCase()}
+    <div className="flex flex-col gap-2">
+      <div className="cc-scroll" role="img" aria-label={label}>
+        <div className="cc-grid" style={cols} aria-hidden="true">
+          <span />
+          {cal.days.map((d) => (
+            <span key={`t${d.iso}`} className="cc-today">
+              {d.today ? "TODAY" : ""}
             </span>
           ))}
+          <span />
+          {cal.days.map((d) => (
+            <span key={`m${d.iso}`} className="cc-month">
+              {d.month ?? ""}
+            </span>
+          ))}
+          <span />
+          {cal.days.map((d) => (
+            <span key={`d${d.iso}`} className={`cc-day${d.today ? " cc-day-today" : ""}`}>
+              {d.day}
+            </span>
+          ))}
+          {cal.rows.map((r) => (
+            <Fragment key={r.req._id}>
+              <span className="cc-name">{firstName(r.req.borrowerName)}</span>
+              {cal.days.map((d, i) => {
+                const inside = i >= r.from && i <= r.to;
+                const cls = [
+                  "cc-cell",
+                  inside ? (r.req.status === "approved" ? "cc-approved" : "cc-waiting") : "",
+                  inside && i === r.from ? "cc-start" : "",
+                  inside && i === r.to ? "cc-end" : "",
+                  r.clash[i] ? "cc-clash" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                return <span key={d.iso} className={cls} />;
+              })}
+            </Fragment>
+          ))}
         </div>
+      </div>
+      <div className="cc-legend" aria-hidden="true">
+        <span>
+          <i className="cc-swatch cc-approved" /> Approved
+        </span>
+        <span>
+          <i className="cc-swatch cc-waiting" /> Waiting
+        </span>
+        <span>
+          <i className="cc-swatch cc-clash" /> Clash
+        </span>
       </div>
     </div>
   );
@@ -131,59 +117,45 @@ function RequestRow({
   all,
   today,
   now,
-  verdict,
   onDecided,
 }: {
   loan: Loan;
   all: Loan[];
   today: string;
   now: number;
-  verdict?: Verdict;
-  onDecided: (id: Id<"loans">, v: Verdict) => void;
+  onDecided: (note: string) => void;
 }) {
   const zone = useTimeZone();
   const [confirming, setConfirming] = useState(false);
-  // Who this approval's "dates taken" email goes to, worked out with the server's own rule.
-  const [told, setTold] = useState<string[]>([]);
   const approve = useAction(useMutation(api.loans.approve));
   const decline = useAction(useMutation(api.loans.decline));
   const busy = approve.pending || decline.pending;
   const who = shortName(loan.borrowerName);
   const first = firstName(loan.borrowerName);
-  const why = loan.status === "pending" ? blockedReason(loan, all, today) : null;
+  const why = blockedReason(loan, all, today);
   const whyId = `why-${loan._id}`;
-  const stampId = `stamp-${loan._id}`;
-  const days = daysBetween(loan.startDate, loan.endDate) + 1;
-
-  useEffect(() => {
-    if (verdict) document.getElementById(stampId)?.focus();
-  }, [verdict, stampId]);
+  const line = dateLine(loan.startDate, loan.endDate);
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-3 border-t border-mist py-4 max-[640px]:grid-cols-1">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="flex flex-wrap items-center gap-2 text-lg font-bold">
-          {who} · {formatDateRange(loan.startDate, loan.endDate)}
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="flex flex-wrap items-center gap-2 font-bold">
+          {who}
           {loan.borrowerTrusted ? <TrustedBadge compact /> : null}
         </span>
-        <span className="text-sm text-ink-2">
-          {days} {days === 1 ? "day" : "days"} · {askedLabel(loan.createdAt, now, zone)}
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-display text-lg font-extrabold">{line.dates}</span>
+          <span className="mono text-sm text-ink-2">· {line.days}</span>
         </span>
+        <span className="text-sm text-ink-2">{askedLabel(loan.createdAt, now, zone)}</span>
         {why ? (
           <span id={whyId} className="text-sm text-brick">
             {why}
           </span>
         ) : null}
       </div>
-      <div role="status" className="flex flex-wrap items-center justify-end gap-2.5 max-[640px]:justify-start">
-        {verdict ? (
-          <>
-            <Stamp id={stampId} tone={verdict} size="lg" tilt={-3} press>
-              {verdict}
-            </Stamp>
-            <span className="text-sm text-ink-2">{verdictNote(verdict, first, told)}</span>
-          </>
-        ) : loan.status !== "pending" ? null : confirming ? (
+      <div className="flex flex-wrap items-center justify-end gap-2.5 max-[640px]:justify-start">
+        {confirming ? (
           <>
             <span className="text-sm">Decline {first}? They&apos;ll get an email.</span>
             <Button disabled={busy} onClick={() => setConfirming(false)}>
@@ -193,7 +165,9 @@ function RequestRow({
               variant="danger"
               disabled={busy}
               onClick={async () => {
-                if (await decline.run({ loanId: loan._id })) onDecided(loan._id, "declined");
+                if (await decline.run({ loanId: loan._id })) {
+                  onDecided(`Declined ${who}'s request for ${loan.toolName}. ${verdictNote("declined", first, [])}`);
+                }
               }}
             >
               {decline.pending ? "Declining…" : "Yes, decline"}
@@ -209,11 +183,13 @@ function RequestRow({
               disabled={busy || why !== null}
               aria-describedby={why ? whyId : undefined}
               onClick={async () => {
+                // Who this approval's "dates taken" email goes to, by the server's own rule.
                 const onTool = all.filter((o) => o.toolId === loan.toolId);
-                const blocked = newlyBlocked(loan, onTool, today).map((o) => firstName(o.borrowerName));
+                const told = newlyBlocked(loan, onTool, today).map((o) => firstName(o.borrowerName));
                 if (await approve.run({ loanId: loan._id })) {
-                  setTold(blocked);
-                  onDecided(loan._id, "approved");
+                  onDecided(
+                    `Approved ${who}'s request for ${loan.toolName} (${formatDateRange(loan.startDate, loan.endDate)}). ${verdictNote("approved", first, told)}`,
+                  );
                 }
               }}
               aria-label={`Approve ${who}'s request for ${loan.toolName}`}
@@ -228,27 +204,27 @@ function RequestRow({
   );
 }
 
+/** One tool with requests still waiting; approved loans live under "Out on loan". */
 function ToolGroup({
   toolName,
-  reqs,
+  waiting,
   all,
   today,
   now,
-  verdicts,
   onDecided,
 }: {
   toolName: string;
-  reqs: Loan[];
+  waiting: Loan[];
   all: Loan[];
   today: string;
   now: number;
-  verdicts: Record<string, Verdict>;
-  onDecided: (id: Id<"loans">, v: Verdict) => void;
+  onDecided: (note: string) => void;
 }) {
-  const waiting = reqs.filter((r) => r.status === "pending");
-  const approvedOnTool = all.filter((l) => l.toolId === reqs[0].toolId && l.status === "approved" && !reqs.includes(l));
+  const toolId = waiting[0].toolId;
+  const approvedOnTool = all.filter((l) => l.toolId === toolId && l.status === "approved");
+  const cal = clashCalendar([...approvedOnTool, ...waiting], today);
   const pair = waiting.flatMap((a, i) => waiting.slice(i + 1).filter((b) => overlaps(a, b)).map((b) => [a, b] as const))[0];
-  const headingId = `group-${reqs[0].toolId}`;
+  const headingId = `group-${toolId}`;
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3.5 rounded-2xl border border-line-soft bg-white px-5.5 py-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
@@ -265,18 +241,10 @@ function ToolGroup({
           Approving one will block the other, and we&apos;ll let them know.
         </Notice>
       ) : null}
-      <Calendar tool={toolName} rows={[...approvedOnTool, ...reqs]} today={today} />
+      {cal ? <ClashCal tool={toolName} cal={cal} today={today} /> : null}
       <div>
-        {reqs.map((loan) => (
-          <RequestRow
-            key={loan._id}
-            loan={loan}
-            all={all}
-            today={today}
-            now={now}
-            verdict={verdicts[loan._id]}
-            onDecided={onDecided}
-          />
+        {waiting.map((loan) => (
+          <RequestRow key={loan._id} loan={loan} all={all} today={today} now={now} onDecided={onDecided} />
         ))}
       </div>
     </section>
@@ -344,8 +312,13 @@ function IncomingBody() {
   const now = useNow();
   const zone = useTimeZone();
   const today = todayIn(zone, now);
-  // Decisions made on this visit keep their stamp in place instead of vanishing from the list.
-  const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
+  // The last approve or decline on this visit, said once at the top: who was emailed, and
+  // anyone whose dates it took. The decided request itself leaves the waiting list.
+  const [note, setNote] = useState<{ text: string; n: number } | null>(null);
+  const noteRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (note) noteRef.current?.focus();
+  }, [note]);
   const [returned, setReturned] = useState<Record<string, true>>({});
 
   return (
@@ -353,6 +326,13 @@ function IncomingBody() {
       <PageHeader title="Incoming requests">
         Neighbors asking to borrow your tools, grouped by tool. Today is {formatDayLong(today)} · {zone.replace(/_/g, " ")}.
       </PageHeader>
+      <div ref={noteRef} tabIndex={-1} role="status" className="rounded-md outline-none">
+        {note ? (
+          <p key={note.n} className="rounded-md border border-pine bg-[#E7F2EC] px-4 py-3 text-[15px] text-pine-ink">
+            {note.text}
+          </p>
+        ) : null}
+      </div>
       {loans === undefined ? (
         <LoadingState label="Loading incoming requests…" />
       ) : (
@@ -360,9 +340,8 @@ function IncomingBody() {
           loans={loans}
           today={today}
           now={now}
-          verdicts={verdicts}
           returned={returned}
-          onDecided={(id, v) => setVerdicts((s) => ({ ...s, [id]: v }))}
+          onDecided={(text) => setNote((prev) => ({ text, n: (prev?.n ?? 0) + 1 }))}
           onReturned={(id) => setReturned((s) => ({ ...s, [id]: true }))}
         />
       )}
@@ -374,7 +353,6 @@ function IncomingLists({
   loans,
   today,
   now,
-  verdicts,
   returned,
   onDecided,
   onReturned,
@@ -382,14 +360,12 @@ function IncomingLists({
   loans: Loan[];
   today: string;
   now: number;
-  verdicts: Record<string, Verdict>;
   returned: Record<string, true>;
-  onDecided: (id: Id<"loans">, v: Verdict) => void;
+  onDecided: (note: string) => void;
   onReturned: (id: Id<"loans">) => void;
 }) {
-  const inGroups = loans.filter((l) => l.status === "pending" || verdicts[l._id]);
   const groups = new Map<string, Loan[]>();
-  for (const l of inGroups) groups.set(l.toolId, [...(groups.get(l.toolId) ?? []), l]);
+  for (const l of loans.filter((x) => x.status === "pending")) groups.set(l.toolId, [...(groups.get(l.toolId) ?? []), l]);
   for (const reqs of groups.values()) reqs.sort((a, b) => a.startDate.localeCompare(b.startDate));
   const out = loans
     .filter((l) => l.status === "approved" || returned[l._id])
@@ -398,22 +374,21 @@ function IncomingLists({
   if (groups.size === 0 && out.length === 0) {
     return (
       <EmptyState title="No requests right now">
-        When a neighbor asks to borrow one of your tools, it shows up here with a calendar of the dates.
+        When a neighbor asks to borrow one of your tools, it shows up here with its dates.
       </EmptyState>
     );
   }
   return (
     <>
       {groups.size === 0 ? <p className="text-ink-2">No requests are waiting for an answer.</p> : null}
-      {[...groups.values()].map((reqs) => (
+      {[...groups.values()].map((waiting) => (
         <ToolGroup
-          key={reqs[0].toolId}
-          toolName={reqs[0].toolName}
-          reqs={reqs}
+          key={waiting[0].toolId}
+          toolName={waiting[0].toolName}
+          waiting={waiting}
           all={loans}
           today={today}
           now={now}
-          verdicts={verdicts}
           onDecided={onDecided}
         />
       ))}

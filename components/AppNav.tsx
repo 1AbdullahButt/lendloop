@@ -89,7 +89,7 @@ export function AppHeader({ ready }: { ready: boolean }) {
             <span className="mono rounded bg-sun px-1.5 text-xs font-semibold tracking-[0.08em] text-ink">ADMIN</span>
           ) : null}
         </Link>
-        <nav aria-label="Main" className="scroll-x flex min-w-0 flex-1 gap-1">
+        <nav aria-label="Main" className="scroll-x relative flex min-w-0 flex-1 gap-1">
           {ready ? (
             <QueryBoundary fallback={null}>
               <NavLinks />

@@ -232,3 +232,55 @@ export const overdueLoan = internalMutation({
     return { loanId, toolId, borrowerId, lenderId };
   },
 });
+
+/**
+ * Cleans up after one e2e run (qa/e2e/kickoff.spec.ts): closes the run's loans (approved ones
+ * are marked returned, pending ones cancelled) and removes the run's tools from the board, so
+ * test listings like "QA drill <stamp>" never pile up in demo data. Internal only, and it
+ * queues no emails: it undoes test fixtures, it isn't a real change anyone needs to hear about.
+ */
+export const cleanupRun = internalMutation({
+  args: { toolIds: v.array(v.id("tools")), loanIds: v.array(v.id("loans")) },
+  handler: async (ctx, { toolIds, loanIds }) => {
+    const now = Date.now();
+    const touched = new Set<Id<"tools">>();
+    let loansClosed = 0;
+    const close = async (loan: Doc<"loans">) => {
+      if (loan.status === "approved") await ctx.db.patch(loan._id, { status: "returned", returnedAt: now });
+      else if (loan.status === "pending") await ctx.db.patch(loan._id, { status: "cancelled", decidedAt: now });
+      else return;
+      loansClosed++;
+      touched.add(loan.toolId);
+    };
+    for (const id of loanIds) {
+      const loan = await ctx.db.get(id);
+      if (loan) await close(loan);
+    }
+    let toolsRemoved = 0;
+    for (const id of toolIds) {
+      const tool = await ctx.db.get(id);
+      if (!tool) continue;
+      const onTool = await ctx.db
+        .query("loans")
+        .withIndex("by_tool", (q) => q.eq("toolId", id))
+        .collect();
+      for (const loan of onTool) await close(loan);
+      if (tool.removedAt === undefined) {
+        await ctx.db.patch(id, { removedAt: now });
+        toolsRemoved++;
+      }
+      touched.add(id);
+    }
+    // A tool goes back to available once none of its loans is approved any more.
+    for (const toolId of touched) {
+      const stillOut = await ctx.db
+        .query("loans")
+        .withIndex("by_tool", (q) => q.eq("toolId", toolId))
+        .filter((q) => q.eq(q.field("status"), "approved"))
+        .first();
+      if (!stillOut) await ctx.db.patch(toolId, { status: "available" });
+    }
+    return { loansClosed, toolsRemoved };
+  },
+});
+

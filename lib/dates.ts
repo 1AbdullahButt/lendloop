@@ -84,6 +84,19 @@ export function formatDayLong(isoDate: string): string {
   return p ? `${WEEKDAY.format(p.ms)}, ${formatDate(isoDate)}` : isoDate;
 }
 
+/** "Sun Nov 9" (no comma), for the request date line. */
+export function formatDayShort(isoDate: string): string {
+  const p = parts(isoDate);
+  return p ? `${WEEKDAY.format(p.ms)} ${formatDate(isoDate)}` : isoDate;
+}
+
+/** A request's dates as one line: { dates: "Sun Nov 9 → Mon Nov 10", days: "2 days" }. */
+export function dateLine(start: string, end: string): { dates: string; days: string } {
+  const n = daysBetween(start, end) + 1;
+  const dates = start === end ? formatDayShort(start) : `${formatDayShort(start)} → ${formatDayShort(end)}`;
+  return { dates, days: `${n} ${n === 1 ? "day" : "days"}` };
+}
+
 const timeFormats = new Map<string, Intl.DateTimeFormat>();
 
 /** A moment's time of day in `zone`, with the zone's short name: "1:31 AM GMT+5", "9:00 PM EST". */
