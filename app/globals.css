@@ -461,6 +461,18 @@
     overflow-x: auto;
     scrollbar-width: none;
   }
+  /*
+   * Phones: the main nav takes its own full-width row under the logo and the user button, and
+   * scrolls sideways; a fade at the right edge says there is more.
+   */
+  @media (max-width: 640px) {
+    .nav-row {
+      mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    }
+    .nav-row > :last-child {
+      margin-right: 24px;
+    }
+  }
 
   /* Admin tables. */
   .tbl {
@@ -604,34 +616,33 @@
     row-gap: 6px;
     min-width: max-content;
   }
-  .cc-today,
-  .cc-month {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.2;
-    text-align: center;
-    white-space: nowrap;
-  }
-  .cc-today {
-    font-weight: 700;
-    color: var(--color-ink);
-    min-height: 16px;
-  }
-  .cc-month {
-    color: var(--color-ink-2);
-    min-height: 16px;
-  }
   .cc-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    min-height: 44px;
     font-family: var(--font-mono);
     font-size: 14px;
     font-weight: 600;
-    text-align: center;
     color: var(--color-ink);
-    padding: 3px 0;
+    white-space: nowrap;
+    padding-bottom: 4px;
     border-bottom: 1px solid var(--color-line-soft);
   }
   .cc-day-today {
     border-bottom: 3px solid var(--color-ink);
+  }
+  .cc-today-tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: var(--color-ink);
+    color: #fff;
   }
   .cc-name {
     font-size: 15px;

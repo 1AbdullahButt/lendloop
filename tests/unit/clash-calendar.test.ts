@@ -22,7 +22,7 @@ describe("clashCalendar", () => {
     const jake = req("pending", "2026-11-11", "2026-11-13");
     const cal = clashCalendar([maya, jake], TODAY)!;
     expect(cal.days.map((d) => d.day)).toEqual([9, 10, 11, 12, 13, 14]);
-    expect(cal.days.map((d) => d.month)).toEqual(["NOV", null, null, null, null, null]);
+    expect(cal.days.map((d) => d.label)).toEqual(["Nov 9", "10", "11", "12", "13", "14"]);
     expect(cal.days.filter((d) => d.today).map((d) => d.iso)).toEqual(["2026-11-09"]);
     const [m, j] = cal.rows;
     expect([m.req, j.req]).toEqual([maya, jake]);
@@ -44,8 +44,7 @@ describe("clashCalendar", () => {
 
   test("crossing into December shows the month again where it changes", () => {
     const cal = clashCalendar([req("pending", "2026-11-28", "2026-12-02"), req("pending", "2026-11-30", "2026-12-03")], TODAY)!;
-    const months = cal.days.filter((d) => d.month).map((d) => `${d.month} ${d.day}`);
-    expect(months).toEqual(["NOV 27", "DEC 1"]);
+    expect(cal.days.filter((d) => d.month).map((d) => d.label)).toEqual(["Nov 27", "Dec 1"]);
   });
 
   test("a 30-day request clashing with another still fits, one cell per day", () => {

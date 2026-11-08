@@ -54,27 +54,17 @@ function ClashCal({ tool, cal, today }: { tool: string; cal: ClashCalendar<Loan>
   const label = `${tool} calendar: ${cal.rows
     .map((r) => `${shortName(r.req.borrowerName)} ${formatDateRange(r.req.startDate, r.req.endDate)}, ${r.req.status === "approved" ? "approved" : "waiting"}`)
     .join("; ")}. Clashing days: ${clashDays.join(", ")}.${cal.days.some((d) => d.today) ? ` Today is ${formatDate(today)}.` : ""}`;
-  const cols = { gridTemplateColumns: `minmax(64px, max-content) repeat(${cal.days.length}, minmax(40px, 1fr))` };
+  // Days stay between 44px and 72px wide, so a short clash doesn't stretch across the card.
+  const cols = { gridTemplateColumns: `minmax(64px, max-content) repeat(${cal.days.length}, minmax(44px, 72px))` };
   return (
     <div className="flex flex-col gap-2">
       <div className="cc-scroll" role="img" aria-label={label}>
         <div className="cc-grid" style={cols} aria-hidden="true">
           <span />
           {cal.days.map((d) => (
-            <span key={`t${d.iso}`} className="cc-today">
-              {d.today ? "TODAY" : ""}
-            </span>
-          ))}
-          <span />
-          {cal.days.map((d) => (
-            <span key={`m${d.iso}`} className="cc-month">
-              {d.month ?? ""}
-            </span>
-          ))}
-          <span />
-          {cal.days.map((d) => (
             <span key={`d${d.iso}`} className={`cc-day${d.today ? " cc-day-today" : ""}`}>
-              {d.day}
+              {d.today ? <span className="cc-today-tag">TODAY</span> : null}
+              {d.label}
             </span>
           ))}
           {cal.rows.map((r) => (
@@ -145,7 +135,10 @@ function RequestRow({
         </span>
         <span className="flex flex-wrap items-baseline gap-x-2">
           <span className="font-display text-lg font-extrabold">{line.dates}</span>
-          <span className="mono text-sm text-ink-2">· {line.days}</span>
+          <span className="mono text-sm text-ink-2 max-[640px]:basis-full">
+            <span className="max-[640px]:hidden">· </span>
+            {line.days}
+          </span>
         </span>
         <span className="text-sm text-ink-2">{askedLabel(loan.createdAt, now, zone)}</span>
         {why ? (

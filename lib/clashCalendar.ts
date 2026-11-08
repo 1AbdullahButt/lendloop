@@ -6,8 +6,10 @@ export type CalendarDay = {
   iso: string;
   /** Day of the month, shown in every cell. */
   day: number;
-  /** "NOV", only on the first cell and where the month changes. */
+  /** "Nov", only on the first cell and where the month changes. */
   month: string | null;
+  /** What the cell shows: "Nov 9" where the month is shown, else "10". */
+  label: string;
   today: boolean;
 };
 
@@ -45,8 +47,8 @@ export function clashCalendar<T extends Req>(requests: readonly T[], today: stri
   for (let i = 0; i < count; i++) {
     const iso = addDays(first, i);
     const day = Number(iso.slice(8, 10));
-    const month = i === 0 || day === 1 ? MONTH.format(Date.parse(`${iso}T00:00:00Z`)).toUpperCase() : null;
-    days.push({ iso, day, month, today: iso === today });
+    const month = i === 0 || day === 1 ? MONTH.format(Date.parse(`${iso}T00:00:00Z`)) : null;
+    days.push({ iso, day, month, label: month ? `${month} ${day}` : String(day), today: iso === today });
   }
 
   const holds = (r: Req, iso: string) => r.startDate <= iso && iso <= r.endDate;
