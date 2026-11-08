@@ -101,7 +101,8 @@ describe("AC2 (signed-in list): tools.list shows details but never owner email",
 
     const tentRow = list.find((x) => x._id === tent)!;
     expect(tentRow.status).toBe("on_loan");
-    expect(tentRow.ownerName).toBe(ALICE.name);
+    // Other users' names leave Convex as first name + last initial (data minimisation; see qa/TEST-DISPUTES.md).
+    expect(tentRow.ownerName).toBe("Alice L.");
     expect(tentRow.ownerTrusted).toBe(false);
     expect(list.find((x) => x._id === drill)!.status).toBe("available");
 

@@ -18,6 +18,7 @@ import type * as lib_dates from "../lib/dates.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_events from "../lib/events.js";
 import type * as lib_hmac from "../lib/hmac.js";
+import type * as lib_public from "../lib/public.js";
 import type * as lib_removal from "../lib/removal.js";
 import type * as lib_validation from "../lib/validation.js";
 import type * as lib_views from "../lib/views.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   "lib/errors": typeof lib_errors;
   "lib/events": typeof lib_events;
   "lib/hmac": typeof lib_hmac;
+  "lib/public": typeof lib_public;
   "lib/removal": typeof lib_removal;
   "lib/validation": typeof lib_validation;
   "lib/views": typeof lib_views;

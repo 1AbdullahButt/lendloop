@@ -6,7 +6,7 @@ and talks to Convex over signed HTTP in both directions (SPEC §6).
 | Workflow file | Name in n8n | What it does |
 |---|---|---|
 | `workflows/request-notification.json` | LendLoop: request notification | Webhook (Raw Body) → verify HMAC → Switch on `type` → compose message → mock send → `200`. Bad/stale/unsigned → `401`, empty body. Unknown `type` → `400`. |
-| `workflows/overdue-reminders.json` | LendLoop: overdue reminders | Daily 09:00 (or manual) → signed `GET /n8n/overdue-loans` → split → mock send → per item: signed `POST /n8n/reminder-status`. |
+| `workflows/overdue-reminders.json` | LendLoop: overdue reminders | Daily 09:00 (or manual) → one signed `GET /n8n/overdue-loans` per deployment (dev, plus production when `CONVEX_SITE_URL_PROD` is set) → tag each loan with its deployment → mock send → per item: signed `POST /n8n/reminder-status` to that same deployment. A deployment whose GET fails is logged (`overdue-fetch-failed`) and alerted after the other's reminders are sent. |
 | `workflows/error-handler.json` | LendLoop: error handler | Error Trigger → one-line alert (workflow, node, error, execution id/url) → mock outbox, plus Slack/Discord if `ALERT_WEBHOOK_URL` is set. |
 
 "Send" is a mock: each message is appended as one JSON line to the file in `LENDLOOP_MOCK_OUTBOX`
@@ -47,6 +47,8 @@ Copy `n8n/.env.example` to `n8n/.env` (git-ignored) and fill it in. `docker comp
 | `CONVEX_TO_N8N_SECRET` | request-notification (verify) | Same value as the Convex env var of that name. |
 | `N8N_TO_CONVEX_SECRET` | overdue-reminders (sign) | Same value as the Convex env var of that name. |
 | `CONVEX_SITE_URL` | overdue-reminders | `https://<deployment>.convex.site`, no trailing slash. This is the `.site` URL, not `.cloud`. |
+| `CONVEX_SITE_URL_PROD` | overdue-reminders (optional) | The production deployment's `.convex.site`. When set, the workflow also reminds on production. |
+| `N8N_TO_CONVEX_SECRET_PROD` | overdue-reminders (optional) | Production's `N8N_TO_CONVEX_SECRET` if it differs; otherwise `N8N_TO_CONVEX_SECRET` is used. |
 | `WEBHOOK_URL` | n8n itself | Your public tunnel URL, so n8n shows the right production webhook URL. |
 | `ALERT_WEBHOOK_URL` | error-handler (optional) | A Slack or Discord incoming-webhook URL. Leave it empty to use the mock outbox only. |
 
@@ -57,14 +59,28 @@ Compose also sets `N8N_RUNNERS_MODE`, `NODE_FUNCTION_ALLOW_BUILTIN`, `N8N_BLOCK_
 
 ### 1. Public URL (cloudflared tunnel)
 
-Convex runs in the cloud and cannot reach `localhost:5678`. Start a tunnel first so you know the URL:
+Convex runs in the cloud and cannot reach this machine. Start the tunnel first so you know the URL:
 
 ```bash
-docker compose --profile tunnel up -d    # bundled cloudflared container, no install needed
+docker compose --profile tunnel up -d    # n8n, the edge proxy and the cloudflared tunnel
 docker compose logs tunnel               # find the https://<random>.trycloudflare.com URL
-# or, with cloudflared installed:
-cloudflared tunnel --url http://localhost:5678
 ```
+
+**What the tunnel exposes.** The tunnel points at the `edge` proxy (`edge/nginx.conf`), not at
+n8n: a quick tunnel has no ingress rules, so without the proxy the whole editor would be public.
+The proxy forwards `/webhook/*` (production webhooks) and `/healthz`, and answers 404 to everything
+else, including `/`, `/signin`, `/rest/*`, `/home/*` and the editor's `/webhook-test/*`. The editor
+and its login page are reachable **only on http://localhost:5678**: compose binds the port to
+127.0.0.1, so not even the local network can open it. Check it yourself:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://<tunnel>/signin            # 404
+curl -s -o /dev/null -w "%{http_code}\n" https://<tunnel>/home/workflows    # 404
+curl -s -o /dev/null -w "%{http_code}\n" https://<tunnel>/healthz           # 200
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5678/signin       # 200 (this machine only)
+```
+
+Don't run `cloudflared tunnel --url http://localhost:5678` instead: it would publish the editor.
 
 Put that URL into `WEBHOOK_URL` in `n8n/.env`. The easiest way is
 `node n8n/scripts/write-env.mjs --webhook-url <tunnel URL>`, which also copies both secrets from
@@ -132,7 +148,7 @@ Run it again: Convex skips loans already reminded today, so nothing is sent twic
 docker compose exec n8n tail -f /home/node/.n8n/mock-outbox.log
 ```
 
-Each line is a JSON object with a `channel` field: `request-notification`, `overdue-reminder` or
+Each line is a JSON object with a `channel` field: `request-notification`, `overdue-reminder` (with `deployment`), `overdue-fetch-failed` or
 `error-handler`. Recipient addresses are masked (`a***@example.com`).
 
 ### Updating a workflow that is already imported

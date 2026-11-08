@@ -177,8 +177,10 @@ function RequestRow({
               aria-describedby={why ? whyId : undefined}
               onClick={async () => {
                 // Who this approval's "dates taken" email goes to, by the server's own rule.
-                const onTool = all.filter((o) => o.toolId === loan.toolId);
-                const told = newlyBlocked(loan, onTool, today).map((o) => firstName(o.borrowerName));
+                // Borrowers come as opaque per-response keys, not user ids.
+                const asClash = (o: Loan) => ({ ...o, borrowerId: o.borrowerKey });
+                const onTool = all.filter((o) => o.toolId === loan.toolId).map(asClash);
+                const told = newlyBlocked(asClash(loan), onTool, today).map((o) => firstName(o.borrowerName));
                 if (await approve.run({ loanId: loan._id })) {
                   onDecided(
                     `Approved ${who}'s request for ${loan.toolName} (${formatDateRange(loan.startDate, loan.endDate)}). ${verdictNote("approved", first, told)}`,

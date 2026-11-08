@@ -210,6 +210,13 @@ export const listIncoming = query({
       .withIndex("by_lender", (q) => q.eq("lenderId", me._id))
       .order("desc")
       .collect();
+    // "b1", "b2", ...: tells borrowers apart within this response (lib/clash.ts needs that to
+    // know who a new approval blocks) without sending anyone's user id.
+    const keys = new Map<string, string>();
+    const borrowerKey = (id: string) => {
+      if (!keys.has(id)) keys.set(id, `b${keys.size + 1}`);
+      return keys.get(id)!;
+    };
     return await Promise.all(
       loans.map(async (l) => {
         const tool = await lookups.tool(l.toolId);
@@ -218,18 +225,13 @@ export const listIncoming = query({
           _id: l._id,
           toolId: l.toolId,
           toolName: tool?.name ?? "Removed tool",
-          toolRemoved: !tool || tool.removedAt !== undefined,
-          // Lets the Incoming page apply lib/clash.ts (who a new approval blocks) as Convex does.
-          borrowerId: l.borrowerId,
+          borrowerKey: borrowerKey(l.borrowerId),
           borrowerName: borrower.name,
           borrowerTrusted: borrower.trusted,
           startDate: l.startDate,
           endDate: l.endDate,
           status: l.status,
           createdAt: l.createdAt,
-          decidedAt: l.decidedAt,
-          returnedAt: l.returnedAt,
-          activity: await loanActivity(ctx, l._id),
         };
       }),
     );

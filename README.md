@@ -147,10 +147,14 @@ npm run dev               # http://localhost:3000
 
 Full walkthrough: [n8n/README.md](n8n/README.md).
 
-1. **Tunnel.** Convex cannot reach `localhost:5678`, so give n8n a public URL. Either run the
-   bundled cloudflared container, `docker compose --profile tunnel up -d`, and read the
-   `https://<random>.trycloudflare.com` URL from `docker compose logs tunnel`. Or, with cloudflared
-   installed, run `cloudflared tunnel --url http://localhost:5678`.
+1. **Tunnel.** Convex cannot reach this machine, so give n8n's webhooks a public URL: run
+   `docker compose --profile tunnel up -d` and read the `https://<random>.trycloudflare.com` URL
+   from `docker compose logs tunnel`. The tunnel points at the `edge` proxy
+   (`n8n/edge/nginx.conf`), which forwards only `/webhook/*` and `/healthz` and answers 404 to
+   everything else. **The n8n editor and its login page are reachable only on
+   http://localhost:5678** (the port is bound to 127.0.0.1), never through the tunnel or the local
+   network. Don't point `cloudflared tunnel --url` at port 5678 directly: a quick tunnel has no
+   ingress rules, so that would publish the whole editor.
 2. **`n8n/.env`.** Run `node n8n/scripts/write-env.mjs --webhook-url <tunnel URL>`. It copies both
    shared secrets from `npx convex env list`, derives `CONVEX_SITE_URL` from your deployment, sets
    `WEBHOOK_URL`, and prints names only. Or copy `n8n/.env.example` to `n8n/.env` (git-ignored) and
@@ -270,6 +274,8 @@ never in the repo.
 | `CONVEX_TO_N8N_SECRET` | Convex env **and** `n8n/.env` | `automation.deliver` (sign), n8n *request-notification* (verify) | HMAC secret for Convex → n8n. |
 | `N8N_TO_CONVEX_SECRET` | Convex env **and** `n8n/.env` | n8n *overdue-reminders* (sign), `convex/http.ts` (verify) | HMAC secret for n8n → Convex. |
 | `CONVEX_SITE_URL` | `n8n/.env` | n8n *overdue-reminders* | `https://<deployment>.convex.site` (HTTP actions origin, no trailing slash). |
+| `CONVEX_SITE_URL_PROD` | `n8n/.env` (optional) | n8n *overdue-reminders* | The production deployment's `.convex.site`. When set, reminders cover dev **and** production. |
+| `N8N_TO_CONVEX_SECRET_PROD` | `n8n/.env` (optional) | n8n *overdue-reminders* | Production's `N8N_TO_CONVEX_SECRET`, if it differs from dev's. Falls back to `N8N_TO_CONVEX_SECRET`. |
 | `WEBHOOK_URL` | `n8n/.env` | n8n itself | Public tunnel URL, so n8n shows the right production webhook URL. |
 | `ALERT_WEBHOOK_URL` | `n8n/.env` (optional) | n8n *error-handler* | Slack or Discord incoming webhook for error alerts. If empty, alerts go to the mock outbox only. |
 
@@ -328,9 +334,12 @@ Convex, and work with my PC off. Only the n8n side needs it:
   then marks the email `failed`. The borrower sees it on My requests, and an admin can resend it
   from Automated emails once n8n is back.
 - **Overdue reminders** come from n8n's daily 09:00 workflow, which only runs while n8n is up. It
-  calls the deployment in `CONVEX_SITE_URL` (`n8n/.env`), which points at the **dev** deployment
-  for local testing. For the live site to get reminders, set it to the production deployment's
-  `.convex.site` URL and recreate the n8n container.
+  covers **both** deployments: dev from `CONVEX_SITE_URL` and production from
+  `CONVEX_SITE_URL_PROD` (`n8n/.env`, filled by `node n8n/scripts/write-env.mjs --prod`). Each
+  deployment gets its own signed GET and write-back, so each keeps its own one-reminder-per-day
+  key, and a deployment that can't be reached doesn't stop the other (it is logged and alerted).
+  Leave `CONVEX_SITE_URL_PROD` empty to cover dev only. After changing `n8n/.env`, run
+  `docker compose up -d n8n` so the container picks it up.
 - **Tunnel URL:** a quick tunnel gets a new URL each time it restarts. Then set
   `N8N_REQUEST_WEBHOOK_URL` again on both deployments (`npx convex env set --prod ...` for
   production).
@@ -387,6 +396,9 @@ deleting or weakening it) and locks again.
 ---
 
 ## Security
+
+**[SECURITY.md](SECURITY.md)** has the threat model (threat → mitigation → code → test → how to
+verify it yourself), the demo-only shortcuts and what production would add.
 
 **Authorization lives in Convex.**
 - Every non-public query, mutation and action calls `requireUser(ctx)` or `requireAdmin(ctx)` from
@@ -473,6 +485,21 @@ mutations deterministic and gives retries and an audit trail.
   date, "today" and time on screen is shown in it, with the zone named.
 - Inbound bodies are shape-checked after the signature check and get 400 if malformed.
 
+**Replay inside the window.** n8n keeps the `eventId`s it has sent (24 h, workflow static data). A
+second signed delivery of the same `eventId` sends nothing, answers 200 and is logged in the outbox
+as a duplicate. An id is remembered only after its send succeeded, so a real retry still works.
+
+**n8n is not public.** The quick tunnel points at an nginx edge (`n8n/edge/nginx.conf`) that passes
+only `/webhook/*` and `/healthz`; the editor, login page and REST API answer 404 through the tunnel.
+The editor is reachable only on http://localhost:5678 (port published on `127.0.0.1`).
+
+**Browser headers.** Clerk's middleware sets a Content-Security-Policy with a per-request nonce and
+`'strict-dynamic'`, plus our additions in `lib/securityHeaders.ts` (Convex `https`/`wss`, Clerk,
+`frame-ancestors 'none'`, `object-src 'none'`). `next.config.ts` adds Referrer-Policy, nosniff,
+Permissions-Policy and X-Frame-Options. Because of the nonce, pages render per request (no static
+HTML), which costs nothing here since every signed-in page is live Convex data.
+`CSP_REPORT_ONLY=1` switches the policy to report-only.
+
 The reasoning behind each choice is recorded one line at a time in
 [docs/DECISIONS.md](docs/DECISIONS.md).
 
@@ -483,14 +510,18 @@ The reasoning behind each choice is recorded one line at a time in
 - **Public page:** `tools.listPublic` returns exactly `{ _id, name, category }` for available,
   non-removed tools. It includes no owner, condition, description or status, and a test asserts
   the keys.
-- **Signed-in lists:** these include display names and the Trusted Lender badge, but **never
-  emails**. `tools.list` returns `isMine` instead of `ownerId`. Loan lists show the other party's
-  name only, and the UI prints it as first name and last initial. `/my/requests` activity shows
+- **Each query returns only what its screen shows.** `tests/unit/projections.test.ts` asserts the
+  exact keys for Browse, My listings, My requests, Incoming, `users.me` and the four admin queries.
+- **Signed-in lists:** other users' names leave Convex as first name and last initial
+  (`convex/lib/public.ts displayName`), with the Trusted Lender badge, and **never emails**.
+  `tools.list` returns `isMine` instead of `ownerId`. Incoming tells borrowers apart with an opaque
+  per-response `borrowerKey`, not a user id. `/my/requests` activity shows
   kind, status, which email it was (`type`, e.g. `loan.approved`) and time, plus the loan's
   `emailStatus`, without idempotency keys or n8n error text.
-- **Admin:** `admin.listUsers` is the only function that returns other users' emails. The admin
-  screen shows them masked (`b***@example.com`) next to the last 6 characters of the user id, so
-  two people with the same short name read differently without any full address on screen.
+- **Admin:** no full email reaches the browser, even for admins. `admin.listUsers` returns a masked
+  `emailHint` (`b***@example.com`), shown next to the last 6 characters of the user id so two people
+  with the same short name read differently. The events list sends the email `type` and blocker
+  parsed on the server, not the idempotency key.
 - **Convex → n8n payload:** `eventId, type, loanId, toolName, recipientName, recipientEmail,
   startDate, endDate, sentAt`. It carries **only the recipient's** contact, never both parties'.
   The recipient is the party who did not act.
@@ -521,8 +552,8 @@ The reasoning behind each choice is recorded one line at a time in
 - **Abuse:** rate-limit mutations such as `loans.request` and `tools.create`.
 - **Secret rotation:** accept two secrets during rotation (current and next) and rotate both
   directions together.
-- **Replay inside the window:** add a nonce or `eventId` store on both sides, so a captured request
-  replayed within 5 minutes, or a Convex retry after a lost response, can't send a second email.
+- **Replay inside the window:** n8n already drops a repeated `eventId`; add the same nonce store on
+  the Convex side for the inbound write-back (idempotent today, but not nonce-checked).
 - **Operations:** structured logging and alerting on `failed` events, a dead-letter view with
   manual replay, and an audit log of admin actions (removals, Trusted Lender, role changes).
 - **Quality:** e2e tests that sign in (Clerk testing tokens) and CI running `npm run check` plus
@@ -530,8 +561,6 @@ The reasoning behind each choice is recorded one line at a time in
 - **Product and privacy:** overdue reminders at each borrower's own 9 AM (per-user time zones already
   drive the date rules and the UI), GDPR export and deletion,
   and execution data for webhooks not saved at all.
-- **Names:** shorten names to first name and last initial in the queries, not only in the UI, so
-  full names never leave Convex for other users.
 
 ---
 

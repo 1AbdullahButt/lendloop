@@ -63,10 +63,12 @@ export const setTimeZone = mutation({
   },
 });
 
+/** The caller's own row, trimmed to what the header, admin gate and time zone read. */
 export const me = query({
   args: {},
   handler: async (ctx) => {
-    return await requireUser(ctx);
+    const user = await requireUser(ctx);
+    return { _id: user._id, name: user.name, role: user.role, timeZone: user.timeZone };
   },
 });
 

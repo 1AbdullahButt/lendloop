@@ -219,7 +219,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
       "position": [
-        660,
+        900,
         200
       ]
     },
@@ -249,7 +249,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        900,
+        1140,
         -120
       ]
     },
@@ -279,7 +279,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        900,
+        1140,
         40
       ]
     },
@@ -309,7 +309,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        900,
+        1140,
         200
       ]
     },
@@ -339,7 +339,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        900,
+        1140,
         360
       ]
     },
@@ -369,7 +369,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        900,
+        1140,
         520
       ]
     },
@@ -382,7 +382,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1140,
+        1380,
         200
       ]
     },
@@ -398,7 +398,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1360,
+        1840,
         200
       ]
     },
@@ -430,7 +430,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        900,
+        1140,
         680
       ]
     },
@@ -460,8 +460,83 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        900,
+        1140,
         700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Replay protection inside the 5-minute signature window: the same signed request delivered\n// twice (a captured request replayed, or a Convex retry after a lost 200) must not send a\n// second email. eventIds that were sent are remembered for 24 h in this workflow's static data\n// (set by \"Remember eventId\", only after a successful send, so a failed send can still be retried).\nconst fs = require('fs');\n\nconst DAY_MS = 24 * 60 * 60 * 1000;\nconst store = $getWorkflowStaticData('global');\nconst seen = store.sentEventIds || (store.sentEventIds = {});\nconst now = Date.now();\nfor (const id of Object.keys(seen)) if (now - seen[id] > DAY_MS) delete seen[id];\n\nconst item = $input.first().json;\nconst eventId = String(item.eventId || '');\nif (eventId && seen[eventId]) {\n  const outbox = $env.LENDLOOP_MOCK_OUTBOX;\n  if (outbox) {\n    fs.appendFileSync(outbox, JSON.stringify({\n      at: new Date(now).toISOString(),\n      channel: 'request-notification',\n      duplicate: true,\n      eventId,\n      type: item.type,\n      note: 'second delivery of this eventId: not sent again',\n    }) + '\\n');\n  }\n  return [{ json: { eventId, type: item.type, duplicate: true } }];\n}\nreturn [{ json: { ...item, duplicate: false } }];\n"
+      },
+      "id": "6ddfe70d-f414-4d7a-b570-d2e993948b14",
+      "name": "Drop duplicate eventId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "8612d06b-a396-452d-ad37-58d81ad82116",
+              "leftValue": "={{ $json.duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b34cfcbf-c3f8-4c65-a601-2477cfd7dc1f",
+      "name": "New delivery?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Marks each eventId as sent, after \"Send\" succeeded (see \"Drop duplicate eventId\"). Capped so\n// static data can't grow without bound: the oldest ids go first.\nconst MAX_IDS = 5000;\nconst store = $getWorkflowStaticData('global');\nconst seen = store.sentEventIds || (store.sentEventIds = {});\nconst now = Date.now();\nfor (const item of $input.all()) {\n  if (item.json.eventId) seen[String(item.json.eventId)] = now;\n}\nconst ids = Object.keys(seen);\nif (ids.length > MAX_IDS) {\n  ids.sort((a, b) => seen[a] - seen[b]).slice(0, ids.length - MAX_IDS).forEach((id) => delete seen[id]);\n}\nreturn $input.all();\n"
+      },
+      "id": "c7be9925-6fc3-4eae-8b7c-85f31c140287",
+      "name": "Remember eventId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1610,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "4e005229-3752-43dd-a55e-760a59b67cfc",
+      "name": "Respond 200 (duplicate)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        860
       ]
     }
   ],
@@ -600,7 +675,7 @@
       "main": [
         [
           {
-            "node": "Route by type",
+            "node": "Drop duplicate eventId",
             "type": "main",
             "index": 0
           }
@@ -618,7 +693,7 @@
       "main": [
         [
           {
-            "node": "Respond 200",
+            "node": "Remember eventId",
             "type": "main",
             "index": 0
           }
@@ -630,6 +705,46 @@
         [
           {
             "node": "Send (mock outbox)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drop duplicate eventId": {
+      "main": [
+        [
+          {
+            "node": "New delivery?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New delivery?": {
+      "main": [
+        [
+          {
+            "node": "Route by type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 200 (duplicate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remember eventId": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
             "type": "main",
             "index": 0
           }

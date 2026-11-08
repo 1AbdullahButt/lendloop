@@ -2,6 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { splitFailures } from "@/lib/adminEvents";
 import { todayIn } from "@/lib/dates";
 import { useNow } from "@/lib/useNow";
 import { useTimeZone } from "../TimeZone";
@@ -29,7 +30,8 @@ function AdminBody() {
   if (!events || !loans || !tools || !users) return <LoadingState label="Loading the admin view…" />;
 
   const loanById = new Map<string, AdminLoan>(loans.map((l) => [l._id, l]));
-  const failed = events.filter((e) => e.status === "failed").length;
+  // Only failures an admin can act on; out-of-date ones sit under "Older failures".
+  const failed = splitFailures(events, loanById).active.filter((e) => e.status === "failed").length;
   const overdue = loans.filter((l) => l.status === "approved" && l.endDate < today).length;
   const out = tools.filter((t) => t.status === "on_loan" && t.removedAt === undefined).length;
   const waitingByTool = new Map<string, number>();
@@ -44,7 +46,7 @@ function AdminBody() {
         <strong className="font-display text-lg">Needs attention</strong>
         {failed > 0 ? (
           <a href="#emails" className="inline-flex min-h-11 items-center font-bold text-brick">
-            {plural(failed, "email failed", "emails failed")}
+            {plural(failed, "failed email to resend", "failed emails to resend")}
           </a>
         ) : (
           <span className="text-ink-2">No failed emails</span>

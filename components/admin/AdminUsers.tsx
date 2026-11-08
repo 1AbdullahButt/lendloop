@@ -13,19 +13,14 @@ import { AdminSection, AdminTable } from "./AdminTable";
 type AdminUser = FunctionReturnType<typeof api.admin.listUsers>[number];
 
 /**
- * "b***@example.com · #3f9k2a": the masked email helps an admin recognize someone, and the
+ * "b***@example.com · #3f9k2a" (masked in Convex: the full address never reaches the browser):
+ * the masked email helps an admin recognize someone, and the
  * id suffix tells two "Ben C." at the same provider (or two with no email) apart. Six id
  * characters are not guaranteed unique, but a clash between two given rows is around 1 in
  * 100,000. No full address is printed on screen.
  */
-function maskEmail(email: string): string {
-  const at = email.indexOf("@");
-  if (at < 1) return "no email";
-  return `${email.charAt(0)}***${email.slice(at)}`;
-}
-
 function accountHint(user: AdminUser): string {
-  return `${maskEmail(user.email)} · #${user._id.slice(-6)}`;
+  return `${user.emailHint} · #${user._id.slice(-6)}`;
 }
 
 function TrustedToggle({ user }: { user: AdminUser }) {

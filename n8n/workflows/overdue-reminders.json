@@ -33,7 +33,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Signs the GET for Convex: \"sha256=\" + hex(HMAC-SHA256(secret, timestamp + \".\")) — a GET signs\n// the empty body. The timestamp is taken now, right before the request; the HTTP node's retries\n// (3 tries, 10 s apart, 10 s timeout) finish well inside Convex's 5-minute window.\nconst crypto = require('crypto');\n\nconst secret = $env.N8N_TO_CONVEX_SECRET;\nif (!secret) throw new Error('N8N_TO_CONVEX_SECRET is not set in the n8n environment');\nif (!$env.CONVEX_SITE_URL) throw new Error('CONVEX_SITE_URL is not set in the n8n environment');\n\nconst timestamp = String(Date.now());\nconst signature = 'sha256=' + crypto.createHmac('sha256', secret).update(timestamp + '.', 'utf8').digest('hex');\nreturn [{ json: { timestamp, signature } }];\n"
+        "jsCode": "// One item per Convex deployment, each with its own signed GET. Dev is always on\n// ($env.CONVEX_SITE_URL); production is added when $env.CONVEX_SITE_URL_PROD is set. Each URL comes\n// from the n8n environment, never the workflow. A GET signs the empty body: \"sha256=\" +\n// hex(HMAC-SHA256(secret, timestamp + \".\")). The secret stays in this node: items carry only the\n// deployment name, its site URL and the signature.\nconst crypto = require('crypto');\n\nconst deployments = [];\nif (!$env.CONVEX_SITE_URL) throw new Error('CONVEX_SITE_URL is not set in the n8n environment');\ndeployments.push({ deployment: 'dev', siteUrl: $env.CONVEX_SITE_URL });\nif ($env.CONVEX_SITE_URL_PROD) deployments.push({ deployment: 'prod', siteUrl: $env.CONVEX_SITE_URL_PROD });\n\n// Production may have its own secret; until it does, both deployments share one.\nconst secretFor = (deployment) =>\n  deployment === 'prod' ? $env.N8N_TO_CONVEX_SECRET_PROD || $env.N8N_TO_CONVEX_SECRET : $env.N8N_TO_CONVEX_SECRET;\n\nreturn deployments.map(({ deployment, siteUrl }) => {\n  const secret = secretFor(deployment);\n  if (!secret) throw new Error('N8N_TO_CONVEX_SECRET is not set in the n8n environment');\n  // Taken now, right before the request; the HTTP node's retries (3 tries, 10 s apart) finish\n  // well inside Convex's 5-minute window.\n  const timestamp = String(Date.now());\n  const signature = 'sha256=' + crypto.createHmac('sha256', secret).update(timestamp + '.', 'utf8').digest('hex');\n  return { json: { deployment, siteUrl: String(siteUrl).replace(/\\/+$/, ''), timestamp, signature } };\n});\n"
       },
       "id": "58f0e9fd-7f41-4fcc-a72b-fe90d3f6cbf3",
       "name": "Sign GET overdue-loans",
@@ -46,7 +46,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/overdue-loans",
+        "url": "={{ $json.siteUrl }}/n8n/overdue-loans",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -80,17 +80,17 @@
       ],
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 10000
+      "waitBetweenTries": 10000,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "fieldToSplitOut": "body",
-        "options": {}
+        "jsCode": "// The HTTP node returns only the response, so each loan gets its deployment and site URL back\n// from the signed GET it came from (paired item). The write-back then goes to that same\n// deployment, so each deployment keeps its own <loanId>:<day> idempotency. A deployment whose GET\n// failed is skipped here (its reminders don't block the other one's) and alerted on by\n// \"Alert on failed fetch\".\nconst signed = $('Sign GET overdue-loans').all();\nconst sourceOf = (item, index) => {\n  const p = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const at = p && typeof p.item === 'number' ? p.item : index;\n  return (signed[at] || signed[index]).json;\n};\n\nconst out = [];\n$input.all().forEach((item, index) => {\n  if (item.json.error) return;\n  const { deployment, siteUrl } = sourceOf(item, index);\n  const loans = Array.isArray(item.json.body) ? item.json.body : [];\n  for (const loan of loans) out.push({ json: { ...loan, deployment, siteUrl } });\n});\nreturn out;\n"
       },
       "id": "a9a4e433-ed46-435e-81ea-fc6767c4bac7",
-      "name": "Split overdue loans",
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
+      "name": "Tag loans by deployment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         660,
         300
@@ -98,7 +98,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Mock \"Send reminder\": stands in for an SMTP node. One JSON line per overdue loan goes to the\n// outbox file. A failed send is not thrown: it becomes status \"failed\" with a short error, so\n// Convex records the attempt instead of the whole run aborting.\nconst fs = require('fs');\n\n// Keep only the first character and the domain: enough to tell recipients apart in a log.\nconst maskEmail = (email) => {\n  const parts = String(email || '').split('@');\n  if (parts.length !== 2 || !parts[0] || !parts[1]) return '***';\n  return parts[0].slice(0, 1) + '***@' + parts[1];\n};\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n\nconst outbox = $env.LENDLOOP_MOCK_OUTBOX;\n\nconst results = [];\nfor (const item of $input.all()) {\n  const loan = item.json;\n  if (!loan.loanId || !loan.idempotencyKey) {\n    // Contract violation from Convex: nothing can be written back without these keys.\n    throw new Error('overdue-loans item is missing loanId or idempotencyKey');\n  }\n  const base = { loanId: loan.loanId, idempotencyKey: loan.idempotencyKey };\n  try {\n    if (!outbox) throw new Error('LENDLOOP_MOCK_OUTBOX is not set');\n    const entry = {\n      at: new Date().toISOString(),\n      channel: 'overdue-reminder',\n      loanId: loan.loanId,\n      to: maskEmail(loan.borrowerEmail),\n      subject: oneLine('Reminder: please return ' + loan.toolName, 200),\n      message: oneLine(\n        'Hi ' + loan.borrowerName + ', ' + loan.toolName + ' was due back on ' + loan.endDate +\n          '. Please return it to its owner and ask them to mark it returned in LendLoop.',\n        500,\n      ),\n    };\n    fs.appendFileSync(outbox, JSON.stringify(entry) + '\\n');\n    results.push({ json: { ...base, status: 'sent', to: entry.to } });\n  } catch (error) {\n    results.push({ json: { ...base, status: 'failed', error: oneLine(error && error.message, 200) } });\n  }\n}\nreturn results;\n"
+        "jsCode": "// Mock \"Send reminder\": stands in for an SMTP node. One JSON line per overdue loan goes to the\n// outbox file. A failed send is not thrown: it becomes status \"failed\" with a short error, so\n// Convex records the attempt instead of the whole run aborting.\nconst fs = require('fs');\n\n// Keep only the first character and the domain: enough to tell recipients apart in a log.\nconst maskEmail = (email) => {\n  const parts = String(email || '').split('@');\n  if (parts.length !== 2 || !parts[0] || !parts[1]) return '***';\n  return parts[0].slice(0, 1) + '***@' + parts[1];\n};\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n\nconst outbox = $env.LENDLOOP_MOCK_OUTBOX;\n\nconst results = [];\nfor (const item of $input.all()) {\n  const loan = item.json;\n  if (!loan.loanId || !loan.idempotencyKey) {\n    // Contract violation from Convex: nothing can be written back without these keys.\n    throw new Error('overdue-loans item is missing loanId or idempotencyKey');\n  }\n  const base = { loanId: loan.loanId, idempotencyKey: loan.idempotencyKey, deployment: loan.deployment, siteUrl: loan.siteUrl };\n  try {\n    if (!outbox) throw new Error('LENDLOOP_MOCK_OUTBOX is not set');\n    const entry = {\n      at: new Date().toISOString(),\n      channel: 'overdue-reminder',\n      deployment: loan.deployment,\n      loanId: loan.loanId,\n      to: maskEmail(loan.borrowerEmail),\n      subject: oneLine('Reminder: please return ' + loan.toolName, 200),\n      message: oneLine(\n        'Hi ' + loan.borrowerName + ', ' + loan.toolName + ' was due back on ' + loan.endDate +\n          '. Please return it to its owner and ask them to mark it returned in LendLoop.',\n        500,\n      ),\n    };\n    fs.appendFileSync(outbox, JSON.stringify(entry) + '\\n');\n    results.push({ json: { ...base, status: 'sent', to: entry.to } });\n  } catch (error) {\n    results.push({ json: { ...base, status: 'failed', error: oneLine(error && error.message, 200) } });\n  }\n}\nreturn results;\n"
       },
       "id": "de3db299-40e1-4663-a12c-2e403f9429f8",
       "name": "Send reminder (mock outbox)",
@@ -125,7 +125,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Builds the exact JSON string that will be sent and signs that string. The HTTP node sends\n// $json.body as a raw body, so the bytes Convex verifies are the bytes signed here.\n// Signed per item, right before its POST, so a long list never ages a timestamp past 5 minutes.\nconst crypto = require('crypto');\n\nconst secret = $env.N8N_TO_CONVEX_SECRET;\nif (!secret) throw new Error('N8N_TO_CONVEX_SECRET is not set in the n8n environment');\n\nreturn $input.all().map((item) => {\n  const r = item.json;\n  const payload = { idempotencyKey: r.idempotencyKey, loanId: r.loanId, status: r.status };\n  if (r.status === 'failed' && r.error) payload.error = String(r.error).slice(0, 200);\n  const body = JSON.stringify(payload);\n  const timestamp = String(Date.now());\n  const signature = 'sha256=' + crypto.createHmac('sha256', secret).update(timestamp + '.' + body, 'utf8').digest('hex');\n  return { json: { body, timestamp, signature } };\n});\n"
+        "jsCode": "// Builds the exact JSON string that will be sent and signs that string. The HTTP node sends\n// $json.body as a raw body, so the bytes Convex verifies are the bytes signed here. Each result\n// goes back to the deployment its loan came from, signed with that deployment's secret.\n// Signed per item, right before its POST, so a long list never ages a timestamp past 5 minutes.\nconst crypto = require('crypto');\n\nconst secretFor = (deployment) =>\n  deployment === 'prod' ? $env.N8N_TO_CONVEX_SECRET_PROD || $env.N8N_TO_CONVEX_SECRET : $env.N8N_TO_CONVEX_SECRET;\n\nreturn $input.all().map((item) => {\n  const r = item.json;\n  const secret = secretFor(r.deployment);\n  if (!secret) throw new Error('N8N_TO_CONVEX_SECRET is not set in the n8n environment');\n  if (!r.siteUrl) throw new Error('reminder result has no siteUrl');\n  const payload = { idempotencyKey: r.idempotencyKey, loanId: r.loanId, status: r.status };\n  if (r.status === 'failed' && r.error) payload.error = String(r.error).slice(0, 200);\n  const body = JSON.stringify(payload);\n  const timestamp = String(Date.now());\n  const signature = 'sha256=' + crypto.createHmac('sha256', secret).update(timestamp + '.' + body, 'utf8').digest('hex');\n  return { json: { deployment: r.deployment, siteUrl: r.siteUrl, body, timestamp, signature } };\n});\n"
       },
       "id": "05ddd7ec-155b-4bc2-97de-7802ad03e3ad",
       "name": "Sign POST reminder-status",
@@ -139,7 +139,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.CONVEX_SITE_URL }}/n8n/reminder-status",
+        "url": "={{ $json.siteUrl }}/n8n/reminder-status",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -172,6 +172,19 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 10000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Runs after the reminders branch (it sits below it). A deployment whose GET still failed after\n// 3 tries is written to the outbox and then thrown, so the error workflow alerts on it; the other\n// deployment's reminders were already sent and written back.\nconst fs = require('fs');\nconst signed = $('Sign GET overdue-loans').all();\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n\nconst failed = [];\n$input.all().forEach((item, index) => {\n  if (!item.json.error) return;\n  const p = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const at = p && typeof p.item === 'number' ? p.item : index;\n  const source = (signed[at] || signed[index]).json;\n  const err = item.json.error;\n  failed.push({ deployment: source.deployment, error: oneLine(typeof err === 'string' ? err : err && err.message, 200) });\n});\nif (failed.length === 0) return [];\n\nif ($env.LENDLOOP_MOCK_OUTBOX) {\n  for (const f of failed) {\n    const entry = { at: new Date().toISOString(), channel: 'overdue-fetch-failed', deployment: f.deployment, error: f.error };\n    fs.appendFileSync($env.LENDLOOP_MOCK_OUTBOX, JSON.stringify(entry) + '\\n');\n  }\n}\nthrow new Error('GET /n8n/overdue-loans failed for ' + failed.map((f) => f.deployment + ' (' + f.error + ')').join(', '));\n"
+      },
+      "id": "ff011d73-1988-4023-b103-3a3f978a2984",
+      "name": "Alert on failed fetch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        560
+      ]
     }
   ],
   "connections": {
@@ -212,18 +225,12 @@
       "main": [
         [
           {
-            "node": "Split overdue loans",
+            "node": "Tag loans by deployment",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Split overdue loans": {
-      "main": [
-        [
+          },
           {
-            "node": "Send reminder (mock outbox)",
+            "node": "Alert on failed fetch",
             "type": "main",
             "index": 0
           }
@@ -269,6 +276,17 @@
         [
           {
             "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag loans by deployment": {
+      "main": [
+        [
+          {
+            "node": "Send reminder (mock outbox)",
             "type": "main",
             "index": 0
           }

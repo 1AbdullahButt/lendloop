@@ -34,6 +34,8 @@ export default function RootLayout({
       <body className="min-h-screen">
         {/* Sign-in URLs are set in code (not env) so redirects always stay on this origin. */}
         <ClerkProvider
+          // Reads the per-request CSP nonce, so Clerk's own script tag may run under 'strict-dynamic'.
+          dynamic
           signInUrl="/sign-in"
           signUpUrl="/sign-up"
           signInFallbackRedirectUrl="/tools"

@@ -6,8 +6,10 @@ services:
     # and re-check the "n8n version notes" in n8n/README.md when you do.
     image: n8nio/n8n:2.47.1
     restart: unless-stopped
+    # Bound to this machine only: the editor and its login page are never on the network or the
+    # tunnel. The tunnel reaches webhooks through the `edge` proxy below.
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     # n8n/.env holds CONVEX_TO_N8N_SECRET, N8N_TO_CONVEX_SECRET, CONVEX_SITE_URL, WEBHOOK_URL
     # and optionally ALERT_WEBHOOK_URL (template: n8n/.env.example).
     # WEBHOOK_URL (your public tunnel URL) is passed through from there; it is deliberately not
@@ -32,20 +34,34 @@ services:
       # Execution logs contain the webhook payload (one recipient email): keep them one week only
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=168
+      # Requests arrive through one proxy (edge); trust its X-Forwarded-* headers for the client IP.
+      - N8N_PROXY_HOPS=1
     volumes:
       - n8n_data:/home/node/.n8n
 
-  # Optional public URL for n8n, because cloud Convex cannot reach localhost:5678.
-  # Start with `docker compose --profile tunnel up -d tunnel`, then read the
+  # The only public door into n8n: forwards /webhook/* and /healthz, answers 404 to everything
+  # else (editor, login, REST API). See n8n/edge/nginx.conf.
+  edge:
+    image: nginx:1.27-alpine
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    volumes:
+      - ./n8n/edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - n8n
+
+  # Optional public URL for n8n's webhooks, because cloud Convex cannot reach this machine.
+  # Start with `docker compose --profile tunnel up -d`, then read the
   # https://<random>.trycloudflare.com URL from `docker compose logs tunnel`.
-  # A quick tunnel needs no Cloudflare account; its URL changes on every restart.
+  # A quick tunnel needs no Cloudflare account; its URL changes on every restart. It points at
+  # `edge`, never at n8n directly: a quick tunnel has no ingress rules of its own.
   tunnel:
     image: cloudflare/cloudflared:2026.10.0
     profiles: ["tunnel"]
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://n8n:5678
+    command: tunnel --no-autoupdate --url http://edge:80
     depends_on:
-      - n8n
+      - edge
 
 volumes:
   n8n_data:
