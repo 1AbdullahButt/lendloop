@@ -60,12 +60,18 @@ function adminEmail(): string {
 }
 
 const pages: Record<string, Page> = {};
+/** Console errors per user that mention a CSP block, printed with the diagnostics on failure. */
+const cspErrors: Record<string, string[]> = {};
 
 /** One isolated browser context per user, signed in with a Clerk sign-in token. */
 async function signedIn(browser: Browser, role: string, emailAddress: string): Promise<Page> {
   const context = await browser.newContext();
   const page = await context.newPage();
   pages[role] = page;
+  cspErrors[role] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error" && /Content Security Policy|Refused to/i.test(msg.text())) cspErrors[role].push(msg.text().slice(0, 300));
+  });
   await page.goto("/"); // a public page that loads Clerk
   await clerk.signIn({ page, emailAddress });
   // Compare inside the page and return only a boolean, so no email reaches the test output.
@@ -91,6 +97,7 @@ test.afterEach(async ({}, testInfo) => {
     if (page.isClosed()) continue;
     const heading = await page.getByRole("heading", { level: 1 }).first().textContent().catch(() => null);
     console.log(`[diag] ${role}: ${new URL(page.url()).pathname} | h1: ${heading ?? "(none)"}`);
+    console.log(`[diag] ${role} CSP blocks: ${cspErrors[role]?.length ? cspErrors[role].join(" || ") : "none"}`);
     await page
       .screenshot({ path: testInfo.outputPath(`failure-${role}.png`), fullPage: true, mask: masks(page) })
       .catch(() => undefined);
