@@ -135,6 +135,25 @@ docker compose exec n8n tail -f /home/node/.n8n/mock-outbox.log
 Each line is a JSON object with a `channel` field: `request-notification`, `overdue-reminder` or
 `error-handler`. Recipient addresses are masked (`a***@example.com`).
 
+### Updating a workflow that is already imported
+
+Importing the repo file again creates a **second** workflow: the file has no workflow id, and it
+would also drop this instance's Error workflow setting. Instead, update the existing one in place:
+
+1. Export the live workflow: `n8n export:workflow --id=<id> --output=/tmp/live.json` (ids from
+   `n8n list:workflow`).
+2. Build an import file from it: keep its `id`, `settings` (with `errorWorkflow`), and the Webhook
+   node's `webhookId`; take `nodes` and `connections` from `n8n/workflows/*.json`.
+3. `n8n import:workflow --input=<that file>` updates it in place, and deactivates it.
+4. `n8n publish:workflow --id=<id>`, then `docker compose restart n8n` so the webhook registers.
+5. Check: `n8n list:workflow` shows one workflow of that name, `--active=true` lists it, and a signed
+   test (`notify <url> --type <type>`) gets 200. The webhook path and URL do not change.
+
+The request-notification workflow handles six types: `loan.requested`, `loan.approved`,
+`loan.declined`, `loan.returned`, `loan.cancelled` and `loan.dates_taken` (sent to a borrower whose
+pending dates another approved loan just took). An unknown type gets 400, so Convex retries and
+then marks it failed.
+
 ## Why Raw Body
 
 The request-notification Webhook node has **Raw Body** turned on (`options.rawBody: true`). The

@@ -8,8 +8,8 @@ export { DEFAULT_TIME_ZONE, isValidTimeZone, todayIn } from "../convex/lib/zones
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Latest end date the form offers: start + 30 days, matching convex/loans.ts (server re-checks). */
-export const MAX_LOAN_EXTRA_DAYS = 30;
+/** Longest loan in calendar days, counting both ends, matching convex/loans.ts (server re-checks). */
+export const MAX_LOAN_DAYS = 30;
 
 /** The UTC calendar day (YYYY-MM-DD) a moment falls on: the overdue job's clock. */
 export function todayUtc(now: number = Date.now()): string {
@@ -19,6 +19,16 @@ export function todayUtc(now: number = Date.now()): string {
 export function addDays(isoDate: string, days: number): string {
   const ms = Date.parse(`${isoDate}T00:00:00Z`);
   return new Date(ms + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** Days a loan lasts, counting the first and the last day: Nov 7–9 is 3. */
+export function loanLength(start: string, end: string): number {
+  return daysBetween(start, end) + 1;
+}
+
+/** The latest end date allowed for a loan starting on `start`. */
+export function lastAllowedEnd(start: string): string {
+  return addDays(start, MAX_LOAN_DAYS - 1);
 }
 
 /** Whole days from a to b (b - a). */

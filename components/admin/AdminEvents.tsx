@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatDateTime } from "@/lib/dates";
 import { isCurrentEmail } from "@/lib/loanEmail";
+import { datesOverlap } from "@/convex/lib/clash";
 import { shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
 import { useTimeZone } from "../TimeZone";
@@ -27,11 +28,20 @@ const TYPE_LABEL: Record<string, string> = {
   "loan.declined": "Declined",
   "loan.returned": "Returned",
   "loan.cancelled": "Canceled",
+  "loan.dates_taken": "Dates taken",
 };
 
-/** The key is `<loanId>:<type>` for notifications and `<loanId>:<YYYY-MM-DD>` for reminders. */
+/**
+ * The key is `<loanId>:<type>` for notifications (plus `:<blockerLoanId>` for "dates taken")
+ * and `<loanId>:<YYYY-MM-DD>` for reminders.
+ */
 function eventType(event: AdminEvent): string | null {
-  return event.kind === "request_notification" ? event.idempotencyKey.slice(event.idempotencyKey.indexOf(":") + 1) : null;
+  return event.kind === "request_notification" ? (event.idempotencyKey.split(":")[1] ?? null) : null;
+}
+
+function blockerId(event: AdminEvent): string | null {
+  const parts = event.idempotencyKey.split(":");
+  return parts[1] === "loan.dates_taken" ? (parts[2] ?? null) : null;
 }
 
 export function emailLabel(event: AdminEvent): string {
@@ -61,11 +71,14 @@ function failureHint(lastError: string | undefined): string {
 function StatusCell({
   event,
   loan,
+  blocker,
   resentHere,
   onResent,
 }: {
   event: AdminEvent;
   loan: AdminLoan | undefined;
+  /** For "dates taken": the approved loan that took the dates. */
+  blocker: AdminLoan | undefined;
   resentHere: boolean;
   onResent: () => void;
 }) {
@@ -91,7 +104,12 @@ function StatusCell({
     );
   } else {
     const hint = failureHint(event.lastError);
-    const current = loan ? isCurrentEmail(eventType(event), loan.status) : false;
+    const stillBlocked = Boolean(loan && blocker?.status === "approved" && datesOverlap(blocker, loan));
+    const current = loan ? isCurrentEmail(eventType(event), loan.status, stillBlocked) : false;
+    const staleWhy =
+      loan && blockerId(event) && loan.status === "pending"
+        ? "those dates are free again"
+        : `the request is now ${loan ? loanStatusLabel(loan.status).toLowerCase() : "gone"}`;
     body = (
       <div className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -117,8 +135,7 @@ function StatusCell({
             </Button>
           ) : (
             <span className="text-sm text-ink-2">
-              Out of date: the request is now {loan ? loanStatusLabel(loan.status).toLowerCase() : "gone"}, so
-              there&apos;s nothing to resend.
+              Out of date: {staleWhy}, so there&apos;s nothing to resend.
             </span>
           )}
         </div>
@@ -181,6 +198,7 @@ export function AdminEvents({ events, loans }: { events: AdminEvent[]; loans: Ma
                   <StatusCell
                     event={event}
                     loan={loan}
+                    blocker={blockerId(event) ? loans.get(blockerId(event)!) : undefined}
                     resentHere={Boolean(resent[event._id])}
                     onResent={() => setResent((s) => ({ ...s, [event._id as Id<"automationEvents">]: true }))}
                   />

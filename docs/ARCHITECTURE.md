@@ -65,7 +65,7 @@ callable from clients).
 | `tools.remove` | mutation | requireUser | Owner only. `CONFLICT` while `on_loan`. Soft delete, which cancels pending loans. |
 | `loans.request` | mutation | requireUser | `NOT_FOUND` if the tool is missing or removed, `FORBIDDEN` for your own tool, `INVALID` for bad dates. Queues `loan.requested`. |
 | `loans.cancel` | mutation | requireUser | Borrower only, `pending` → `cancelled`. Queues `loan.cancelled`. |
-| `loans.approve` | mutation | requireUser | Lender only, `pending` → `approved`. `CONFLICT` on inclusive overlap with an approved loan. Tool becomes `on_loan`. |
+| `loans.approve` | mutation | requireUser | Lender only, `pending` → `approved`. `CONFLICT` on inclusive overlap with an approved loan. Tool becomes `on_loan`. Queues `loan.approved`, plus one `loan.dates_taken` for each other borrower whose pending dates it newly blocks (their requests stay pending). |
 | `loans.decline` | mutation | requireUser | Lender only, `pending` → `declined`. |
 | `loans.markReturned` | mutation | requireUser | Lender only, `approved` → `returned`. The tool becomes `available` unless another approved loan remains. |
 | `loans.listMine` | query | requireUser | My requests, with the lender's name and badge, `activity` (notifications carry `type`) and `emailStatus`. |
@@ -161,7 +161,7 @@ Any other transition gives `INVALID`, with no write and no event.
 
 | Kind | Key | Effect |
 |---|---|---|
-| `request_notification` | `<loanId>:<type>`, where type is `loan.requested`, `loan.approved`, `loan.declined`, `loan.returned` or `loan.cancelled` | R7 lets each transition happen at most once per loan. `queueLoanEvent` skips if the key exists. |
+| `request_notification` | `<loanId>:<type>`, where type is `loan.requested`, `loan.approved`, `loan.declined`, `loan.returned` or `loan.cancelled`; `<loanId>:loan.dates_taken:<blockerLoanId>` for dates taken | R7 lets each transition happen at most once per loan, and a borrower hears about a given blocking loan once. `queueLoanEvent` skips if the key exists. |
 | `overdue_reminder` | `<loanId>:<YYYY-MM-DD>` (UTC) | One reminder record per loan per day. The write-back inserts once, and the overdue list skips loans with a `sent` row for today. |
 
 The two formats cannot collide, because a `YYYY-MM-DD` suffix is never a `loan.*` type, and

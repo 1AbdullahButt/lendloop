@@ -7,6 +7,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { askedLabel, daysBetween, daysOverdue, formatDate, formatDateRange, formatDayLong, todayIn } from "@/lib/dates";
 import { calendarStrip } from "@/lib/calendarStrip";
+import { newlyBlocked } from "@/convex/lib/clash";
+import { verdictNote } from "@/lib/loanText";
 import { firstName, shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
 import { useNow } from "@/lib/useNow";
@@ -42,37 +44,64 @@ function blockedReason(loan: Loan, all: Loan[], today: string): string | null {
   return null;
 }
 
-/** Day strip for one tool: each request (and approved loan) as a bar, with today marked. */
+/**
+ * Day strip for one tool on a grid of whole days (lib/calendarStrip.ts): light day ticks, a
+ * shaded today column, and each request or approved loan as a bar labeled with its dates.
+ * On phones (CSS) the in-bar labels hide and each row shows its dates under the name.
+ */
 function Calendar({ tool, rows, today }: { tool: string; rows: Loan[]; today: string }) {
   const strip = calendarStrip(today, rows);
-  const todayLeft = strip.todayPct;
-  const todayShift = { start: "translate-x-0", center: "-translate-x-1/2", end: "-translate-x-full" }[strip.todayAlign];
   const label = `${tool} calendar: ${rows
     .map((r) => `${shortName(r.borrowerName)} ${formatDateRange(r.startDate, r.endDate)}, ${r.status}`)
     .join("; ")}. Today is ${formatDate(today)}.`;
+  const grid = (
+    <>
+      {strip.ticks.map((tick) => (
+        <span key={tick.left} className={`track-tick${tick.strong ? " track-tick-strong" : ""}`} style={{ left: `${tick.left}%` }} />
+      ))}
+      <span className="track-today" style={{ left: `${strip.today.left}%`, width: `${strip.today.width}%` }} />
+    </>
+  );
   return (
     <div role="img" aria-label={label} className="flex flex-col gap-1.5">
       {rows.map((r) => {
         const look =
           r.status === "approved"
-            ? { fill: "#1F6B4E", line: "#1F6B4E", style: "solid" }
+            ? { fill: "#1F6B4E", line: "#1F6B4E", style: "solid", text: "#FFFFFF" }
             : r.status === "declined"
-              ? { fill: "transparent", line: "#8A2A1E", style: "dashed" }
-              : { fill: "#F5C518", line: "#6B4E00", style: "solid" };
+              ? { fill: "#FFFFFF", line: "#8A2A1E", style: "dashed", text: "#8A2A1E" }
+              : { fill: "#F5C518", line: "#6B4E00", style: "solid", text: "#15201B" };
+        const bar = strip.bar(r.startDate, r.endDate);
+        const range = formatDateRange(r.startDate, r.endDate);
         return (
           <div key={r._id} className="track-row">
-            <span className="truncate text-sm font-bold">{firstName(r.borrowerName)}</span>
-            <div className="relative h-[26px] rounded-md bg-paper">
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-sm font-bold">{firstName(r.borrowerName)}</span>
+              <span className="track-range-phone mono text-xs text-ink-2">{range}</span>
+            </span>
+            <div className="track">
+              {grid}
               <div
-                className="absolute top-[3px] bottom-[3px] rounded"
+                className="track-bar"
                 style={{
-                  left: `${strip.pos(r.startDate)}%`,
-                  width: `${strip.width(r.startDate, r.endDate)}%`,
+                  left: `${bar.left}%`,
+                  width: `${bar.width}%`,
                   background: look.fill,
                   border: `2px ${look.style} ${look.line}`,
+                  color: look.text,
                 }}
-              />
-              <div className="absolute -top-[3px] -bottom-[3px] w-0.5 bg-ink" style={{ left: `${todayLeft}%` }} aria-hidden="true" />
+              >
+                {bar.label === "inside" ? <span className="track-bar-label">{range}</span> : null}
+              </div>
+              {bar.label === "after" ? (
+                <span className="track-bar-label track-bar-label-out" style={{ left: `calc(${bar.left + bar.width}% + 6px)` }}>
+                  {range}
+                </span>
+              ) : bar.label === "before" ? (
+                <span className="track-bar-label track-bar-label-out" style={{ right: `calc(${100 - bar.left}% + 6px)` }}>
+                  {range}
+                </span>
+              ) : null}
             </div>
           </div>
         );
@@ -80,11 +109,17 @@ function Calendar({ tool, rows, today }: { tool: string; rows: Loan[]; today: st
       <div className="track-row" aria-hidden="true">
         <span />
         <div className="mono relative h-4 text-xs text-ink-2">
-          {strip.startLabel ? <span className="absolute left-0">{formatDate(strip.startLabel).toUpperCase()}</span> : null}
-          <span className={`absolute ${todayShift} font-semibold text-ink`} style={{ left: `${todayLeft}%` }}>
-            TODAY
-          </span>
-          {strip.endLabel ? <span className="absolute right-0">{formatDate(strip.endLabel).toUpperCase()}</span> : null}
+          {strip.labels.map((l) => (
+            <span
+              key={l.day}
+              className={`absolute whitespace-nowrap ${l.text === "TODAY" ? "font-semibold text-ink" : ""} ${
+                { start: "", center: "-translate-x-1/2", end: "-translate-x-full" }[l.align]
+              }`}
+              style={{ left: `${l.left}%` }}
+            >
+              {l.text === "TODAY" ? "TODAY" : formatDate(l.day).toUpperCase()}
+            </span>
+          ))}
         </div>
       </div>
     </div>
@@ -108,6 +143,8 @@ function RequestRow({
 }) {
   const zone = useTimeZone();
   const [confirming, setConfirming] = useState(false);
+  // Who this approval's "dates taken" email goes to, worked out with the server's own rule.
+  const [told, setTold] = useState<string[]>([]);
   const approve = useAction(useMutation(api.loans.approve));
   const decline = useAction(useMutation(api.loans.decline));
   const busy = approve.pending || decline.pending;
@@ -144,7 +181,7 @@ function RequestRow({
             <Stamp id={stampId} tone={verdict} size="lg" tilt={-3} press>
               {verdict}
             </Stamp>
-            <span className="text-sm text-ink-2">{first} will get an email.</span>
+            <span className="text-sm text-ink-2">{verdictNote(verdict, first, told)}</span>
           </>
         ) : loan.status !== "pending" ? null : confirming ? (
           <>
@@ -172,7 +209,12 @@ function RequestRow({
               disabled={busy || why !== null}
               aria-describedby={why ? whyId : undefined}
               onClick={async () => {
-                if (await approve.run({ loanId: loan._id })) onDecided(loan._id, "approved");
+                const onTool = all.filter((o) => o.toolId === loan.toolId);
+                const blocked = newlyBlocked(loan, onTool, today).map((o) => firstName(o.borrowerName));
+                if (await approve.run({ loanId: loan._id })) {
+                  setTold(blocked);
+                  onDecided(loan._id, "approved");
+                }
               }}
               aria-label={`Approve ${who}'s request for ${loan.toolName}`}
             >
@@ -220,7 +262,7 @@ function ToolGroup({
       {pair ? (
         <Notice tone="warn">
           {firstName(pair[0].borrowerName)} and {firstName(pair[1].borrowerName)} overlap on {overlapRange(pair[0], pair[1])}.
-          Approving one will block the other.
+          Approving one will block the other, and we&apos;ll let them know.
         </Notice>
       ) : null}
       <Calendar tool={toolName} rows={[...approvedOnTool, ...reqs]} today={today} />

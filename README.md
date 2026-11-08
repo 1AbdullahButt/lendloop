@@ -4,7 +4,8 @@
 
 LendLoop is a neighborhood tool-lending board. Neighbors list tools, request to borrow them for a
 date range, approve or decline requests, and mark loans returned. Each loan change sends a
-notification, and borrowers get overdue reminders. n8n delivers both and talks to Convex over
+notification (including to a borrower whose pending dates another approved loan just took), and
+borrowers get overdue reminders. n8n delivers both and talks to Convex over
 HMAC-signed webhooks in both directions. The stack is Next.js 15 (App Router), Clerk, Convex, n8n
 (Docker) and Tailwind.
 
@@ -465,7 +466,8 @@ mutations deterministic and gives retries and an audit trail.
   must come from the schema lists.
 - Dates must be strict, real `YYYY-MM-DD` values. The start must be today or later, where "today"
   is the day in the acting user's own time zone (`users.timeZone`, validated as a real IANA name;
-  UTC if unset). The end must be on or after the start, and `end − start ≤ 30` days. Approving
+  UTC if unset). The end must be on or after the start, and a loan lasts at most 30 days counting the first
+  and last day (`end − start ≤ 29`). Approving
   re-checks the start against the lender's own "today". The daily overdue check stays on UTC.
 - Each user picks their time zone from the header menu (the browser's zone is the default). Every
   date, "today" and time on screen is shown in it, with the zone named.

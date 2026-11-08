@@ -4,11 +4,12 @@ import { mutation, query, type MutationCtx } from "./_generated/server";
 import { requireUser } from "./lib/auth";
 import { daysBetween, isIsoDate, rangesOverlap } from "./lib/dates";
 import { todayIn } from "./lib/zones";
+import { blockingLoan, newlyBlocked } from "./lib/clash";
 import { appError } from "./lib/errors";
 import { queueLoanEvent } from "./lib/events";
 import { loanActivity, loanAutomation, makeLookups } from "./lib/views";
 
-/** endDate - startDate may be at most this many days (start + 30 is allowed). */
+/** A loan lasts at most this many calendar days, counting the first and the last day. */
 export const MAX_LOAN_DAYS = 30;
 
 /** R2, with "today" taken in the acting user's own time zone (UTC if they have none). */
@@ -18,8 +19,9 @@ function checkDates(startDate: string, endDate: string, today: string): void {
   }
   if (startDate < today) throw appError("INVALID", "Start date cannot be in the past.");
   if (endDate < startDate) throw appError("INVALID", "End date must be on or after the start date.");
-  if (daysBetween(startDate, endDate) > MAX_LOAN_DAYS) {
-    throw appError("INVALID", `A loan can last at most ${MAX_LOAN_DAYS} days.`);
+  // Nov 15 to Dec 14 is 30 days; Nov 15 to Dec 15 would be 31.
+  if (daysBetween(startDate, endDate) + 1 > MAX_LOAN_DAYS) {
+    throw appError("INVALID", `A loan can last at most ${MAX_LOAN_DAYS} days, counting the first and last day.`);
   }
 }
 
@@ -102,6 +104,13 @@ export const approve = mutation({
     // R4 decision: on_loan from approval, whatever the start date.
     await ctx.db.patch(loan.toolId, { status: "on_loan" });
     await queueLoanEvent(ctx, loan._id, "loan.approved");
+
+    // Tell every other borrower whose pending dates this approval just took. Their request
+    // stays pending (it becomes approvable again if this loan ends early); the key carries
+    // this loan's id, so one blocker emails each borrower once.
+    for (const blocked of newlyBlocked(loan, others, todayIn(me.timeZone))) {
+      await queueLoanEvent(ctx, blocked._id, "loan.dates_taken", loan._id);
+    }
     return null;
   },
 });
@@ -157,6 +166,17 @@ export const listMine = query({
         const tool = await lookups.tool(l.toolId);
         const lender = await lookups.person(l.lenderId);
         const { activity, emailStatus } = await loanAutomation(ctx, l._id);
+        // A pending request whose days an approved loan now holds: say so, with only the
+        // blocking dates (never who has it).
+        let datesTaken: { startDate: string; endDate: string; mine: boolean } | null = null;
+        if (l.status === "pending") {
+          const onTool = await ctx.db
+            .query("loans")
+            .withIndex("by_tool", (q) => q.eq("toolId", l.toolId))
+            .collect();
+          const blocker = blockingLoan(l, onTool);
+          if (blocker) datesTaken = { startDate: blocker.startDate, endDate: blocker.endDate, mine: blocker.borrowerId === me._id };
+        }
         return {
           _id: l._id,
           toolId: l.toolId,
@@ -172,6 +192,7 @@ export const listMine = query({
           returnedAt: l.returnedAt,
           activity,
           emailStatus,
+          datesTaken,
         };
       }),
     );
@@ -198,6 +219,8 @@ export const listIncoming = query({
           toolId: l.toolId,
           toolName: tool?.name ?? "Removed tool",
           toolRemoved: !tool || tool.removedAt !== undefined,
+          // Lets the Incoming page apply lib/clash.ts (who a new approval blocks) as Convex does.
+          borrowerId: l.borrowerId,
           borrowerName: borrower.name,
           borrowerTrusted: borrower.trusted,
           startDate: l.startDate,

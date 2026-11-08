@@ -4,7 +4,8 @@ import { mutation, query } from "./_generated/server";
 import { requireAdmin } from "./lib/auth";
 import { appError } from "./lib/errors";
 import { isCurrentEmail } from "./lib/announces";
-import { typeFromKey } from "./lib/events";
+import { blockerFromKey, typeFromKey } from "./lib/events";
+import { datesOverlap } from "./lib/clash";
 import { softRemoveTool } from "./lib/removal";
 import { makeLookups } from "./lib/views";
 import { eventKind, eventStatus } from "./schema";
@@ -126,7 +127,14 @@ export const resendEvent = mutation({
     const loan = await ctx.db.get(event.loanId);
     if (!loan) throw appError("NOT_FOUND", "The loan for this email no longer exists.");
     // Once the loan has moved past the transition this email announces, it is stale.
-    if (!isCurrentEmail(typeFromKey(event.idempotencyKey), loan.status)) {
+    const blockerId = blockerFromKey(event.idempotencyKey);
+    const blockerKey = blockerId ? ctx.db.normalizeId("loans", blockerId) : null;
+    const blocker = blockerKey ? await ctx.db.get(blockerKey) : null;
+    const stillBlocked = Boolean(blocker && blocker.status === "approved" && datesOverlap(blocker, loan));
+    if (!isCurrentEmail(typeFromKey(event.idempotencyKey), loan.status, stillBlocked)) {
+      if (blockerId && loan.status === "pending") {
+        throw appError("CONFLICT", "This email is out of date: those dates are free again.");
+      }
       const now = loan.status === "cancelled" ? "canceled" : loan.status;
       throw appError("CONFLICT", `This email is out of date: the request is now ${now}.`);
     }

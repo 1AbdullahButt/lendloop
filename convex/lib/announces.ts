@@ -7,9 +7,14 @@ export const ANNOUNCES = {
   "loan.declined": "declined",
   "loan.returned": "returned",
   "loan.cancelled": "cancelled",
+  "loan.dates_taken": "pending",
 } as const;
 
-/** True while a notification still describes the loan, so resending it makes sense. */
-export function isCurrentEmail(type: string | null | undefined, loanStatus: string): boolean {
-  return Boolean(type && type in ANNOUNCES && ANNOUNCES[type as keyof typeof ANNOUNCES] === loanStatus);
+/**
+ * True while a notification still describes the loan, so resending it makes sense. A "dates
+ * taken" email also needs its blocking loan to still hold those dates (`stillBlocked`).
+ */
+export function isCurrentEmail(type: string | null | undefined, loanStatus: string, stillBlocked = true): boolean {
+  if (!type || !(type in ANNOUNCES) || ANNOUNCES[type as keyof typeof ANNOUNCES] !== loanStatus) return false;
+  return type !== "loan.dates_taken" || stillBlocked;
 }

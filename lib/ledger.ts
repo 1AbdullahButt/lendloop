@@ -46,6 +46,12 @@ function emailWords(type: string | undefined, loan: LedgerLoan, lender: string) 
       return loan.decidedAt === undefined
         ? { sent: `${lender} was emailed that you canceled`, failed: `Email to ${lender} didn't go through`, queued: `Emailing ${lender}…` }
         : { sent: "Cancellation email sent to you", failed: "Cancellation email to you didn't go through", queued: "Sending your cancellation email…" };
+    case "loan.dates_taken":
+      return {
+        sent: "You were emailed that another approved loan took these dates",
+        failed: "Email about your taken dates didn't go through",
+        queued: "Emailing you that these dates were taken…",
+      };
     default:
       return { sent: "Email sent", failed: "Email didn't go through", queued: "Sending email…" };
   }

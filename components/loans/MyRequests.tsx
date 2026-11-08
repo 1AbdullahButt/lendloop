@@ -44,7 +44,7 @@ function FailedEmail({ loan }: { loan: MyLoan }) {
   // Only an email that still describes the loan can be resent; an older failure (say, the
   // "new request" email after approval) stays as a FAILED line in the Activity ledger.
   const failed = loan.activity.find(
-    (a) => a.kind === "request_notification" && a.status === "failed" && isCurrentEmail(a.type, loan.status),
+    (a) => a.kind === "request_notification" && a.status === "failed" && isCurrentEmail(a.type, loan.status, loan.datesTaken != null),
   );
   if (!failed) return null;
   let text: string;

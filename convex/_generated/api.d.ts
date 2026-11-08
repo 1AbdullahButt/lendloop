@@ -13,6 +13,7 @@ import type * as automation from "../automation.js";
 import type * as http from "../http.js";
 import type * as lib_announces from "../lib/announces.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_clash from "../lib/clash.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_errors from "../lib/errors.js";
 import type * as lib_events from "../lib/events.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/announces": typeof lib_announces;
   "lib/auth": typeof lib_auth;
+  "lib/clash": typeof lib_clash;
   "lib/dates": typeof lib_dates;
   "lib/errors": typeof lib_errors;
   "lib/events": typeof lib_events;

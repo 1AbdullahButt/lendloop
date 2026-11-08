@@ -7,7 +7,9 @@ export type LoanEventType =
   | "loan.approved"
   | "loan.declined"
   | "loan.returned"
-  | "loan.cancelled";
+  | "loan.cancelled"
+  // To a pending borrower whose dates were just covered by someone else's approved loan.
+  | "loan.dates_taken";
 
 export const LOAN_EVENT_TYPES: readonly LoanEventType[] = [
   "loan.requested",
@@ -15,16 +17,27 @@ export const LOAN_EVENT_TYPES: readonly LoanEventType[] = [
   "loan.declined",
   "loan.returned",
   "loan.cancelled",
+  "loan.dates_taken",
 ];
 
-export function notificationKey(loanId: Id<"loans">, type: LoanEventType): string {
-  return `${loanId}:${type}`;
+/**
+ * `<loanId>:<type>`, plus `:<blockerLoanId>` for "dates taken": one email per blocking loan,
+ * so a borrower blocked again later by a different approval is told again.
+ */
+export function notificationKey(loanId: Id<"loans">, type: LoanEventType, suffix?: string): string {
+  return suffix ? `${loanId}:${type}:${suffix}` : `${loanId}:${type}`;
 }
 
-/** Recovers the event type from `<loanId>:<type>` so the row needs no extra column. */
+/** Recovers the event type from the key so the row needs no extra column. */
 export function typeFromKey(key: string): LoanEventType | null {
-  const type = key.slice(key.indexOf(":") + 1);
+  const type = key.split(":")[1] ?? "";
   return (LOAN_EVENT_TYPES as readonly string[]).includes(type) ? (type as LoanEventType) : null;
+}
+
+/** The blocking loan's id in a "dates taken" key, or null. */
+export function blockerFromKey(key: string): string | null {
+  const parts = key.split(":");
+  return parts[1] === "loan.dates_taken" && parts[2] ? parts[2] : null;
 }
 
 /**
@@ -36,8 +49,9 @@ export async function queueLoanEvent(
   ctx: MutationCtx,
   loanId: Id<"loans">,
   type: LoanEventType,
+  suffix?: string,
 ): Promise<void> {
-  const idempotencyKey = notificationKey(loanId, type);
+  const idempotencyKey = notificationKey(loanId, type, suffix);
   const existing = await ctx.db
     .query("automationEvents")
     .withIndex("by_key", (q) => q.eq("idempotencyKey", idempotencyKey))

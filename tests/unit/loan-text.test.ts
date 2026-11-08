@@ -1,7 +1,7 @@
 // The borrowing card's text for the viewer's own loan: the status line says the tool is with
 // them, and the sent request's message follows the loan's live status.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { borrowerNextStep, holderLine, myLoanOn, myTagLabel, pendingLine } from "../../lib/loanText";
+import { borrowerNextStep, datesTakenText, holderLine, myLoanOn, myTagLabel, pendingLine, verdictNote } from "../../lib/loanText";
 
 const TODAY = "2026-11-07";
 const loan = (status: string, startDate = "2026-11-07", endDate = "2026-11-09") => ({
@@ -65,5 +65,24 @@ describe("borrowerNextStep follows the live status", () => {
     ["returned", "Returned. Thanks for looking after it."],
   ])("%s", (status, text) => {
     expect(borrowerNextStep(loan(status), TODAY)).toBe(text);
+  });
+});
+
+describe("dates taken: what each side reads", () => {
+  const taken = { startDate: "2026-11-09", endDate: "2026-11-10", mine: false };
+  test("the blocked borrower's next step, Browse line and tag", () => {
+    const pending = { ...loan("pending", "2026-11-10", "2026-11-12"), datesTaken: taken };
+    expect(borrowerNextStep(pending, TODAY)).toBe(
+      "These dates were just taken by another approved loan. Wait in case they free up, or cancel and send new dates.",
+    );
+    expect(pendingLine(pending, "Ben Carter")).toBe("You asked for Nov 10–12 · those dates are now taken");
+    expect(myTagLabel({ status: "pending", startDate: "2026-11-10", datesTaken: taken }, TODAY)).toBe("Dates taken");
+    expect(datesTakenText({ ...taken, mine: true })).toMatch(/^Your other approved loan/);
+  });
+  test("the lender's note names who was told", () => {
+    expect(verdictNote("approved", "Maya", ["Jake"])).toBe("Maya has been emailed. Jake was told those dates are now taken.");
+    expect(verdictNote("approved", "Maya", ["Jake", "Sam"])).toBe("Maya has been emailed. Jake and Sam were told those dates are now taken.");
+    expect(verdictNote("approved", "Maya", [])).toBe("Maya has been emailed.");
+    expect(verdictNote("declined", "Maya", [])).toBe("Maya will get an email.");
   });
 });

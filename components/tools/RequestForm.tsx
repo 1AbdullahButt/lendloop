@@ -4,7 +4,7 @@ import { useMutation } from "convex/react";
 import { useId, useState, type FormEvent } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { addDays, daysBetween, formatDate, MAX_LOAN_EXTRA_DAYS, todayIn } from "@/lib/dates";
+import { addDays, formatDate, lastAllowedEnd, loanLength, MAX_LOAN_DAYS, todayIn } from "@/lib/dates";
 import { useAction } from "@/lib/useAction";
 import { useTimeZone } from "../TimeZone";
 import { Button } from "../ui/Button";
@@ -26,9 +26,9 @@ function dateProblem(startDate: string, endDate: string, today: string): { messa
   if (!startDate || !endDate) return { message: "Pick both dates.", field: startDate ? "end" : "start" };
   if (startDate < today) return { message: `Start today (${formatDate(today)}) or later.`, field: "start" };
   if (endDate < startDate) return { message: "The end date is before the start date.", field: "end" };
-  if (daysBetween(startDate, endDate) > MAX_LOAN_EXTRA_DAYS) {
+  if (loanLength(startDate, endDate) > MAX_LOAN_DAYS) {
     return {
-      message: `Loans run at most ${MAX_LOAN_EXTRA_DAYS} days past the start. Pick an end date by ${formatDate(addDays(startDate, MAX_LOAN_EXTRA_DAYS))}.`,
+      message: `Loans last at most ${MAX_LOAN_DAYS} days, counting the first and last day. Pick an end date by ${formatDate(lastAllowedEnd(startDate))}.`,
       field: "end",
     };
   }
@@ -44,8 +44,8 @@ export function RequestForm({ toolId, toolName, lenderFirst, lenderShort, onSent
   const request = useMutation(api.loans.request);
   const { run, pending, error } = useAction(request);
   const problem = dateProblem(startDate, endDate, today);
-  const days = problem ? 0 : daysBetween(startDate, endDate) + 1;
-  const maxDays = MAX_LOAN_EXTRA_DAYS + 1;
+  const days = problem ? 0 : loanLength(startDate, endDate);
+  const maxDays = MAX_LOAN_DAYS;
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -83,7 +83,7 @@ export function RequestForm({ toolId, toolName, lenderFirst, lenderShort, onSent
             type="date"
             required
             min={startDate || today}
-            max={startDate ? addDays(startDate, MAX_LOAN_EXTRA_DAYS) : undefined}
+            max={startDate ? lastAllowedEnd(startDate) : undefined}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             aria-invalid={problem?.field === "end"}

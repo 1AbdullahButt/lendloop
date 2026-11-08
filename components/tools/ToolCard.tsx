@@ -12,12 +12,12 @@ export type ToolItem = FunctionReturnType<typeof api.tools.list>[number];
 /** The tag's status. `mine` is the viewer's own loan on this tool (lib/loanText myLoanOn). */
 export function toolAvailability(
   tool: ToolItem,
-  mine?: { status: string; startDate: string },
+  mine?: { status: string; startDate: string; datesTaken?: { startDate: string; endDate: string; mine: boolean } | null },
   today = "",
 ): { label: string; color: string } {
   if (tool.isMine) return { label: "Your tool", color: "#2E4257" };
   const own = myTagLabel(mine, today);
-  if (own) return { label: own, color: own === "You asked" ? "#2E4257" : "#145233" };
+  if (own) return { label: own, color: own === "Dates taken" ? "#8A2A1E" : own === "You asked" ? "#2E4257" : "#145233" };
   if (tool.status === "available") return { label: "Available now", color: "#145233" };
   return { label: "Out on loan", color: "#6B4E00" };
 }
@@ -33,7 +33,7 @@ export function ToolCard({
   tool: ToolItem;
   selected: boolean;
   onPick: () => void;
-  mine?: { status: string; startDate: string };
+  mine?: Parameters<typeof toolAvailability>[1];
   today?: string;
 }) {
   const status = toolAvailability(tool, mine, today);

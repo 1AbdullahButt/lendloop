@@ -36,6 +36,7 @@ type Prepared =
 function recipientSide(type: LoanEventType, loan: Doc<"loans">): "lender" | "borrower" {
   if (type === "loan.requested") return "lender";
   if (type === "loan.cancelled") return loan.decidedAt === undefined ? "lender" : "borrower";
+  // approved, declined, returned, and dates_taken (the blocked request's own borrower).
   return "borrower";
 }
 

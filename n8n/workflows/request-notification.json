@@ -184,6 +184,29 @@
               },
               "renameOutput": true,
               "outputKey": "cancelled"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "accfb5b8-4179-41b9-b4d8-c4c44976092a",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "loan.dates_taken",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "dates_taken"
             }
           ]
         },
@@ -410,6 +433,36 @@
         900,
         680
       ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "90ca7228-2547-4caa-b967-93d911613909",
+              "name": "subject",
+              "value": "=The dates you asked for {{ $json.toolName }} are taken",
+              "type": "string"
+            },
+            {
+              "id": "53f31dc5-4b01-47ac-8375-2f956d63b061",
+              "name": "message",
+              "value": "=Hi {{ $json.recipientName }}, another loan of {{ $json.toolName }} was just approved for days that overlap your request ({{ $json.startDate }} to {{ $json.endDate }}). The owner can't approve yours unless those days free up. Open LendLoop to wait, or cancel and send new dates.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "9c76e8a3-1e26-4a73-a153-87d56441636a",
+      "name": "Compose loan.dates_taken",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        700
+      ]
     }
   ],
   "connections": {
@@ -446,6 +499,13 @@
         [
           {
             "node": "Compose loan.cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compose loan.dates_taken",
             "type": "main",
             "index": 0
           }
@@ -559,6 +619,17 @@
         [
           {
             "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose loan.dates_taken": {
+      "main": [
+        [
+          {
+            "node": "Send (mock outbox)",
             "type": "main",
             "index": 0
           }
