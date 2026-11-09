@@ -4,6 +4,7 @@ import { useMutation } from "convex/react";
 import { useRef, useState, type ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
+import { splitListings } from "@/lib/adminListings";
 import { shortName } from "@/lib/names";
 import { useAction } from "@/lib/useAction";
 import { Button } from "../ui/Button";
@@ -17,12 +18,19 @@ function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-function RemoveControl({ tool, waiting }: { tool: AdminTool; waiting: number }) {
+function RemoveControl({ tool, waiting, onRemoved }: { tool: AdminTool; waiting: number; onRemoved?: () => void }) {
   // The buttons vanish once the listing is removed; focus lands on the result instead.
   const cellRef = useRef<HTMLDivElement>(null);
   return (
     <div ref={cellRef} tabIndex={-1} className="inline-block rounded">
-      <RemoveControlBody tool={tool} waiting={waiting} onRemoved={() => cellRef.current?.focus()} />
+      <RemoveControlBody
+        tool={tool}
+        waiting={waiting}
+        onRemoved={() => {
+          onRemoved?.();
+          cellRef.current?.focus();
+        }}
+      />
     </div>
   );
 }
@@ -95,28 +103,50 @@ function RemoveControlBody({
 }
 
 export function AdminTools({ tools, waitingByTool }: { tools: AdminTool[]; waitingByTool: Map<string, number> }) {
+  // Removed listings can't be acted on, so they wait collapsed below instead of crowding the
+  // live ones. One removed on this visit stays put so its result shows where the click was.
+  const [removedNow, setRemovedNow] = useState<ReadonlySet<string>>(new Set());
+  const { active, removed } = splitListings(tools, removedNow);
+  const headers = ["Tool", "Owner", { label: "Action", right: true }];
+  const rows = (list: AdminTool[]) =>
+    list.map((tool) => (
+      <tr key={tool._id} className={tool.removedAt !== undefined ? "bg-paper" : undefined}>
+        <td>
+          <span className="font-bold">{tool.name}</span>
+          {tool.status === "on_loan" && tool.removedAt === undefined ? (
+            <span className="ml-2 text-sm text-ink-2">on loan</span>
+          ) : null}
+        </td>
+        <td>{shortName(tool.ownerName)}</td>
+        <td className="text-right">
+          <RemoveControl
+            tool={tool}
+            waiting={waitingByTool.get(tool._id) ?? 0}
+            onRemoved={() => setRemovedNow((s) => new Set(s).add(tool._id))}
+          />
+        </td>
+      </tr>
+    ));
   return (
     <AdminSection id="listings" title="Listings" note="Removing a listing hides it everywhere and cancels its waiting requests.">
-      {tools.length === 0 ? (
-        <EmptyState title="No tools listed yet" />
+      {active.length === 0 ? (
+        <EmptyState title={removed.length > 0 ? "No active listings" : "No tools listed yet"} />
       ) : (
-        <AdminTable caption="All listings, including removed ones" minWidth={520} headers={["Tool", "Owner", { label: "Action", right: true }]}>
-          {tools.map((tool) => (
-            <tr key={tool._id} className={tool.removedAt !== undefined ? "bg-paper" : undefined}>
-              <td>
-                <span className="font-bold">{tool.name}</span>
-                {tool.status === "on_loan" && tool.removedAt === undefined ? (
-                  <span className="ml-2 text-sm text-ink-2">on loan</span>
-                ) : null}
-              </td>
-              <td>{shortName(tool.ownerName)}</td>
-              <td className="text-right">
-                <RemoveControl tool={tool} waiting={waitingByTool.get(tool._id) ?? 0} />
-              </td>
-            </tr>
-          ))}
+        <AdminTable caption="Active listings" minWidth={520} headers={headers}>
+          {rows(active)}
         </AdminTable>
       )}
+      {removed.length > 0 ? (
+        <details className="rounded-xl border-2 border-line-soft bg-white px-4 py-3">
+          <summary className="min-h-11 cursor-pointer content-center font-bold text-ink-2">
+            Removed listings ({removed.length})
+          </summary>
+          <p className="mt-1 mb-3 text-sm text-ink-2">Hidden from the board. Kept for the record.</p>
+          <AdminTable caption="Removed listings" minWidth={520} headers={headers}>
+            {rows(removed)}
+          </AdminTable>
+        </details>
+      ) : null}
     </AdminSection>
   );
 }

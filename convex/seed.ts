@@ -233,54 +233,62 @@ export const overdueLoan = internalMutation({
   },
 });
 
+/** Only e2e fixtures can be purged; a typo'd id must never delete a real listing. */
+export const TEST_TOOL_NAME = /^(QA|Seed) /;
+
 /**
- * Cleans up after one e2e run (qa/e2e/kickoff.spec.ts): closes the run's loans (approved ones
- * are marked returned, pending ones cancelled) and removes the run's tools from the board, so
- * test listings like "QA drill <stamp>" never pile up in demo data. Internal only, and it
- * queues no emails: it undoes test fixtures, it isn't a real change anyone needs to hear about.
+ * Deletes what one e2e run created (qa/e2e/kickoff.spec.ts), so nothing piles up in demo data:
+ * the run's test tools with every loan on them, the extra loans it made on real tools (the
+ * seeded overdue loan), and every automation event of those loans. A real tool that lent
+ * through one of those loans goes back to available. Internal only, and it queues no emails:
+ * it undoes test fixtures, it isn't a change anyone needs to hear about. Also used once by hand
+ * to purge leftovers from older runs (docs/DECISIONS.md).
  */
 export const cleanupRun = internalMutation({
   args: { toolIds: v.array(v.id("tools")), loanIds: v.array(v.id("loans")) },
   handler: async (ctx, { toolIds, loanIds }) => {
-    const now = Date.now();
-    const touched = new Set<Id<"tools">>();
-    let loansClosed = 0;
-    const close = async (loan: Doc<"loans">) => {
-      if (loan.status === "approved") await ctx.db.patch(loan._id, { status: "returned", returnedAt: now });
-      else if (loan.status === "pending") await ctx.db.patch(loan._id, { status: "cancelled", decidedAt: now });
-      else return;
-      loansClosed++;
-      touched.add(loan.toolId);
-    };
-    for (const id of loanIds) {
-      const loan = await ctx.db.get(id);
-      if (loan) await close(loan);
-    }
-    let toolsRemoved = 0;
+    const tools: Doc<"tools">[] = [];
     for (const id of toolIds) {
       const tool = await ctx.db.get(id);
       if (!tool) continue;
+      if (!TEST_TOOL_NAME.test(tool.name)) throw appError("INVALID", `Not a test tool: ${tool.name}`);
+      tools.push(tool);
+    }
+    const loans = new Map<Id<"loans">, Doc<"loans">>();
+    for (const id of loanIds) {
+      const loan = await ctx.db.get(id);
+      if (loan) loans.set(id, loan);
+    }
+    for (const tool of tools) {
       const onTool = await ctx.db
         .query("loans")
-        .withIndex("by_tool", (q) => q.eq("toolId", id))
+        .withIndex("by_tool", (q) => q.eq("toolId", tool._id))
         .collect();
-      for (const loan of onTool) await close(loan);
-      if (tool.removedAt === undefined) {
-        await ctx.db.patch(id, { removedAt: now });
-        toolsRemoved++;
-      }
-      touched.add(id);
+      for (const loan of onTool) loans.set(loan._id, loan);
     }
-    // A tool goes back to available once none of its loans is approved any more.
-    for (const toolId of touched) {
+    let eventsDeleted = 0;
+    for (const loan of loans.values()) {
+      const events = await ctx.db
+        .query("automationEvents")
+        .withIndex("by_loan", (q) => q.eq("loanId", loan._id))
+        .collect();
+      for (const e of events) await ctx.db.delete(e._id);
+      eventsDeleted += events.length;
+      await ctx.db.delete(loan._id);
+    }
+    const purged = new Set<Id<"tools">>(tools.map((t) => t._id));
+    for (const tool of tools) await ctx.db.delete(tool._id);
+    // A real tool lent through a deleted loan is available again once nothing approved holds it.
+    for (const toolId of new Set([...loans.values()].map((l) => l.toolId))) {
+      if (purged.has(toolId)) continue;
       const stillOut = await ctx.db
         .query("loans")
         .withIndex("by_tool", (q) => q.eq("toolId", toolId))
         .filter((q) => q.eq(q.field("status"), "approved"))
         .first();
-      if (!stillOut) await ctx.db.patch(toolId, { status: "available" });
+      if (!stillOut && (await ctx.db.get(toolId))) await ctx.db.patch(toolId, { status: "available" });
     }
-    return { loansClosed, toolsRemoved };
+    return { toolsDeleted: tools.length, loansDeleted: loans.size, eventsDeleted };
   },
 });
 

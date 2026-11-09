@@ -182,3 +182,9 @@ One line each: decision — reason. Agents add to this as they build; the README
 - Overdue reminders cover dev and production from one workflow: one item per deployment, each URL from n8n env (`CONVEX_SITE_URL`, `CONVEX_SITE_URL_PROD`), each signed with that deployment's secret (`N8N_TO_CONVEX_SECRET_PROD` falls back to the shared one). Each write-back goes to the deployment the loan came from, so each keeps its own `<loanId>:<day>` key.
 - The GET continues on error, so one unreachable deployment doesn't cancel the other's reminders; a separate "Alert on failed fetch" node logs and throws afterwards, so the error workflow still fires (no silent failure).
 - Admin "Older failures (n)": failed request emails the loan has moved past (same rule as `admin.resendEvent`, `lib/adminEvents.ts`) collapse into a closed `<details>` under the table, and "Needs attention" counts only resendable ones. Display only: rows are never deleted, so the audit trail stays complete.
+
+### Demo cleanup
+- Admin Listings shows active listings; removed ones sit in a collapsed "Removed listings (n)" section, and one removed on this visit stays in the table: removed rows can't be acted on, and the result should show where the admin clicked.
+- `seed:cleanupRun` now deletes the e2e run's test tools, their loans and those loans' events instead of soft-removing them: soft-removed fixtures piled up in the admin tables and in Maya's history after every kickoff.
+- `seed:cleanupRun` refuses any tool whose name doesn't start with "QA " or "Seed ": a hard delete must never reach a real listing by a wrong id.
+- Old leftovers (removed QA/Seed tools from earlier runs) were purged once by hand with the same mutation on dev and production, after the owner approved the list.
