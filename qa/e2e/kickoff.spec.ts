@@ -125,7 +125,7 @@ async function open(page: Page, path: string): Promise<void> {
 // Loans this run creates outside its own tools (the seeded overdue loan), for the cleanup below.
 const extraLoans: string[] = [];
 
-/** Leaves no test listings or open loans behind (seed:cleanupRun queues no emails). */
+/** Deletes the run's test listings, loans and emails, so nothing is left behind (seed:cleanupRun queues no emails). */
 test.afterAll(() => {
   try {
     const toolIds = convexData("tools")
