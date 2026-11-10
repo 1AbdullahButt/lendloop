@@ -188,3 +188,7 @@ One line each: decision — reason. Agents add to this as they build; the README
 - `seed:cleanupRun` now deletes the e2e run's test tools, their loans and those loans' events instead of soft-removing them: soft-removed fixtures piled up in the admin tables and in Maya's history after every kickoff.
 - `seed:cleanupRun` refuses any tool whose name doesn't start with "QA " or "Seed ": a hard delete must never reach a real listing by a wrong id.
 - Old leftovers (removed QA/Seed tools from earlier runs) were purged once by hand with the same mutation on dev and production, after the owner approved the list.
+
+### Sign-up link
+- Sign-up was already open (Clerk sign-up mode "public", `/sign-up` route, `signUpUrl` wired), but the only link to it was the footer inside Clerk's sign-in card; the home page now links to `/sign-up` in the header and under the hero button, so visitors can find it.
+- README "Try the live demo": demo accounts are sent with the application, never committed (rule 4: no real emails or passwords in the repo).
