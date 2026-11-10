@@ -165,7 +165,8 @@ export const resendEvent = mutation({
       const now = loan.status === "cancelled" ? "canceled" : loan.status;
       throw appError("CONFLICT", `This email is out of date: the request is now ${now}.`);
     }
-    await ctx.db.patch(eventId, { status: "queued", lastError: undefined });
+    // lastAttemptAt restarts the stuck-email clock (automation.sweepStuck) for this attempt.
+    await ctx.db.patch(eventId, { status: "queued", lastError: undefined, lastAttemptAt: Date.now() });
     // Mutations never call the network: delivery stays in the internal action.
     await ctx.scheduler.runAfter(0, internal.automation.deliver, { eventId });
     return null;

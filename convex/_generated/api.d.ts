@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as automation from "../automation.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as lib_announces from "../lib/announces.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -19,6 +20,7 @@ import type * as lib_errors from "../lib/errors.js";
 import type * as lib_events from "../lib/events.js";
 import type * as lib_hmac from "../lib/hmac.js";
 import type * as lib_public from "../lib/public.js";
+import type * as lib_redact from "../lib/redact.js";
 import type * as lib_removal from "../lib/removal.js";
 import type * as lib_validation from "../lib/validation.js";
 import type * as lib_views from "../lib/views.js";
@@ -37,6 +39,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   automation: typeof automation;
+  crons: typeof crons;
   http: typeof http;
   "lib/announces": typeof lib_announces;
   "lib/auth": typeof lib_auth;
@@ -46,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   "lib/events": typeof lib_events;
   "lib/hmac": typeof lib_hmac;
   "lib/public": typeof lib_public;
+  "lib/redact": typeof lib_redact;
   "lib/removal": typeof lib_removal;
   "lib/validation": typeof lib_validation;
   "lib/views": typeof lib_views;

@@ -107,10 +107,23 @@ describe("loan.dates_taken on approve", () => {
     await alice.as.mutation(api.loans.decline, { loanId: declined });
     const cancelled = await requestLoan(dave.as, toolId, d(3), d(5));
     await dave.as.mutation(api.loans.cancel, { loanId: cancelled });
-    const own = await requestLoan(bob.as, toolId, d(3), d(6));
     const stale = await requestLoan(carol.as, toolId, d(0), d(8));
     vi.setSystemTime(new Date(`${d(1)}T12:00:00Z`)); // stale's start has now passed
     const b = await requestLoan(bob.as, toolId, d(2), d(4));
+    // loans.request now refuses a second overlapping pending request from the same borrower, so
+    // Bob's own overlapping request is written directly, as one made before that guard would be.
+    const own = await t.run(async (ctx) => {
+      const { toolId: tool, borrowerId, lenderId } = (await ctx.db.get(b))!;
+      return await ctx.db.insert("loans", {
+        toolId: tool,
+        borrowerId,
+        lenderId,
+        startDate: d(3),
+        endDate: d(6),
+        status: "pending",
+        createdAt: Date.now(),
+      });
+    });
     await alice.as.mutation(api.loans.approve, { loanId: b });
     for (const id of [declined, cancelled, own, stale]) expect(await takenKeys(t, id)).toEqual([]);
   });

@@ -25,8 +25,11 @@ my PC: see [Deployment](#deployment).
 
 ## Try the live demo
 
-- **Demo accounts** (a lender, a borrower and an admin) are sent with my application. No email
-  address or password for them is in this repo, its tests or its history.
+- **Demo accounts** (a lender, a borrower and an admin): the sign-in details are sent with my
+  application. No password is in this repo, its tests or its history. The seed and test scripts
+  do name the demo people's addresses, but they are all on the reserved `example.com` domain,
+  which has no mailboxes, so an address alone can't be used to sign in. The admin account isn't
+  one of them.
 - **Or create your own:** sign-up is open. Use **Sign up** on the home page (or "Don't have an
   account? Sign up" on the sign-in card) and you get a normal user account. Admin is never given
   at sign-up: it comes only from the Convex `users` table ([Admin bootstrap](#5-admin-bootstrap)).
@@ -212,16 +215,17 @@ node scripts/clerk-test-users.mjs
 
 This uses the Clerk Backend API with `CLERK_SECRET_KEY` from `.env.local` (it refuses anything
 but an `sk_test_` key, and never prints it). It creates or renames five test users in your Clerk
-development instance, with first and last names set:
+development instance, with first and last names set, all on `example.com` addresses (the script
+lists them):
 
-| User | Email | Role in the demo |
-|---|---|---|
-| Ben C. | `ben+clerk_test@example.com` | lender in the e2e run; owns three seed tools |
-| Maya R. | `maya+clerk_test@example.com` | borrower in the e2e run |
-| Marcus D., Olivia P., Jake T. | `marcus+`, `olivia+`, `jake+clerk_test@example.com` | seed neighbors |
+| User | Role in the demo |
+|---|---|
+| Ben C. | lender in the e2e run; owns three seed tools |
+| Maya R. | borrower in the e2e run |
+| Marcus D., Olivia P., Jake T. | seed neighbors |
 
-`+clerk_test` addresses are Clerk test users: no real email is sent and the verification code is
-`424242`. The script then runs the internal `seed:neighbors`, linked to everyone's Clerk ids. It
+The e2e run signs these users in with Clerk sign-in tokens made from `CLERK_SECRET_KEY`, so it
+never needs an email code. The script then runs the internal `seed:neighbors`, linked to everyone's Clerk ids. It
 gives Ben the design's three listings (cordless drill, hedge trimmer, pressure washer) and puts
 Marcus, Olivia and Jake on the board with two tools each (jigsaw, carpet cleaner, ladder, stand
 mixer, tent, tile cutter). Running it again changes nothing: a tool is skipped when its owner
@@ -238,8 +242,8 @@ node scripts/clerk-demo-logins.mjs
 It adds `ben_test@`, `maya_test@`, `marcus_test@`, `olivia_test@` and `jake_test@example.com` to
 the matching accounts, verified and primary, and sets one password you type for all five. Input
 is hidden, and the password is sent only to Clerk: it's never printed, stored in a file or kept
-in an env var. The `+clerk_test` addresses stay on the accounts, so the e2e run keeps signing in
-by them. Clerk enforces its own password rules (this instance: at least 15 characters, and not a
+in an env var. The script's original addresses stay on the accounts, so the e2e run keeps
+finding them. Clerk enforces its own password rules (this instance: at least 15 characters, and not a
 known breached password). `--check` shows each account's state without changing anything. The
 seed matches people on either address, because `users.ensure` copies the primary address into
 the Convex row at sign-in.
@@ -329,8 +333,10 @@ execution-data pruning (`EXECUTIONS_DATA_MAX_AGE=168`).
 The live app still uses the Clerk development instance (`pk_test_` and `sk_test_` keys), on
 purpose for now: a Clerk production instance needs a domain I own, and a `*.vercel.app` domain
 can't be used. As a result, the sign-in page shows Clerk's "Development mode" label, the browser
-console warns about development keys, and Clerk's development usage limits apply. The
-`+clerk_test` users from [step 6](#6-test-users-and-demo-data) can sign in on the live site too.
+console warns about development keys, and Clerk's development usage limits apply. Because
+the live site shares this instance, Clerk's **test mode** must be off on it: test mode accepts a
+fixed verification code for test addresses, and the demo accounts' addresses are in the seed
+scripts. SECURITY.md lists this under demo-only choices.
 To move to production: create a Clerk production instance on a custom domain, put its keys in
 Vercel, and set its issuer as `CLERK_JWT_ISSUER_DOMAIN` on the Convex production deployment.
 
@@ -367,8 +373,7 @@ npm run test:kickoff  # live end-to-end run of the brief's manual checks (see be
 `npm run test:kickoff` (`qa/e2e/kickoff.spec.ts`) drives the real stack: Clerk dev instance,
 Convex dev deployment, and n8n in Docker with the workflows imported and active. Lender, borrower
 and admin sign in through `@clerk/testing` sign-in tokens, created with `CLERK_SECRET_KEY` from
-`.env.local`, so no password is typed. Ben C. (`ben+clerk_test@example.com`) lends and Maya R.
-(`maya+clerk_test@example.com`) borrows; create them first with `node scripts/clerk-test-users.mjs`
+`.env.local`, so no password is typed. Ben C. lends and Maya R. borrows; create them first with `node scripts/clerk-test-users.mjs`
 (Setup step 6). The admin is the first address in `ADMIN_EMAILS`. The run covers
 listing, requesting, approving, both notifications sent, admin removal and Trusted Lender, and an
 overdue reminder that a second workflow run does not repeat. Screenshots go to `qa/screenshots/`,
@@ -451,7 +456,11 @@ verify it yourself), the demo-only shortcuts and what production would add.
 
 **Idempotency.**
 - Outbound notifications are keyed `<loanId>:<type>`. R7 lets each transition happen at most once
-  per loan, so a double-fired mutation can't queue two notifications. `deliver` skips any event
+  per loan, so a double-fired approve, decline, cancel or return can't queue two notifications.
+- A new request is a new loan, so `loans.request` guards it separately: it answers `CONFLICT`
+  when the caller already has a pending request on that tool with overlapping dates (a double
+  click sends one request), and `CONFLICT` again after 10 requests in a rolling hour per user,
+  so one account can't flood a lender with emails. `deliver` skips any event
   that is no longer `queued`, so a stray duplicate job never sends twice.
 - Overdue reminders are keyed `<loanId>:<YYYY-MM-DD>`. `POST /n8n/reminder-status` inserts once per
   key. A second call with the same key changes nothing and returns 200. The key must belong to an
@@ -463,16 +472,22 @@ the internal action `automation.deliver` with `ctx.scheduler.runAfter(0, …)`. 
 mutations deterministic and gives retries and an audit trail.
 
 **Failures are visible.**
-- Outbound: 1 attempt plus 3 retries (30 s, 2 min, 10 min), then `status: "failed"` with a short
+- Outbound: each attempt times out after 10 s. 1 attempt plus 3 retries (30 s, 2 min, 10 min), then `status: "failed"` with a short
   `lastError` such as "HTTP 500 from webhook". The secret and webhook URL are replaced with
   `[redacted]`, and the text is capped at 300 chars. Admins see this in the *Automated emails*
   table, as a plain next step ("n8n couldn't be reached. Check the tunnel address.") above the
   redacted `lastError`, with a **Resend** button while the email still describes the loan. The
   borrower sees a FAILED line in the request's Activity, and a red note while that email is still
   current. A missing webhook URL or secret counts as a failed attempt, so misconfiguration shows
-  up there too.
+  up there too. A cron (`convex/crons.ts`) checks every 5 minutes for emails stuck in `queued`
+  for over 15 minutes (a delivery that died mid-flight) and counts that as a failed attempt: the
+  next retry is scheduled, or the email is marked `failed` and can be resent.
+- Reminder errors written back by n8n have email-shaped text replaced with `[redacted-email]`
+  before they're stored, so an SMTP error can't put an address in the admin view.
 - n8n: HTTP nodes retry 3 times, 10 s apart. Errors go to the error-handler workflow (mock outbox
-  plus optional Slack or Discord). A failed reminder send is written back as `failed`.
+  plus optional Slack or Discord). A failed reminder send is written back as `failed`. Each
+  overdue loan is sent and written back before the next one starts, and a write-back that still
+  fails is logged and alerted at the end of the run without stopping the other loans.
 
 **Secrets.**
 - Secrets live in `.env.local` (git-ignored), Convex env vars or `n8n/.env` (git-ignored). They are
@@ -559,9 +574,21 @@ The reasoning behind each choice is recorded one line at a time in
   instead of relying on `users.ensure` from the client.
 - **Scale:** add pagination and indexes such as a `by_status` index and paginated admin lists,
   because lists currently collect whole tables.
-- **Abuse:** rate-limit mutations such as `loans.request` and `tools.create`.
+- **Abuse:** `loans.request` has a per-user limit (10 an hour); add the same to `tools.create`
+  and per-IP limits on the webhook routes, with Convex's rate-limiter component instead of a
+  query over recent rows.
 - **Secret rotation:** accept two secrets during rotation (current and next) and rotate both
   directions together.
+- **Known limit: admin promotion fails open on email verification.** `users.ensure` blocks
+  `ADMIN_EMAILS` promotion only when the token says `email_verified: false`. If the claim were
+  dropped from the Clerk session token, an unverified address on the list would be promoted.
+  Production should require `email_verified === true` (a Clerk production instance, where
+  verification can't be skipped, makes it meaningful).
+- **Known limit: the signature doesn't cover method, path or deployment.** HMAC is over
+  `timestamp.rawBody` only, and dev and production share the secrets, so a captured signed
+  `GET /n8n/overdue-loans` can be replayed for 5 minutes, on either deployment, and returns
+  borrowers' names and emails. Production should sign `method + path + timestamp + body` and use
+  separate secrets per deployment.
 - **Replay inside the window:** n8n already drops a repeated `eventId`; add the same nonce store on
   the Convex side for the inbound write-back (idempotent today, but not nonce-checked).
 - **Operations:** structured logging and alerting on `failed` events, a dead-letter view with

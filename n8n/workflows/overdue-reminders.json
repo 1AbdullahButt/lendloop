@@ -85,7 +85,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// The HTTP node returns only the response, so each loan gets its deployment and site URL back\n// from the signed GET it came from (paired item). The write-back then goes to that same\n// deployment, so each deployment keeps its own <loanId>:<day> idempotency. A deployment whose GET\n// failed is skipped here (its reminders don't block the other one's) and alerted on by\n// \"Alert on failed fetch\".\nconst signed = $('Sign GET overdue-loans').all();\nconst sourceOf = (item, index) => {\n  const p = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const at = p && typeof p.item === 'number' ? p.item : index;\n  return (signed[at] || signed[index]).json;\n};\n\nconst out = [];\n$input.all().forEach((item, index) => {\n  if (item.json.error) return;\n  const { deployment, siteUrl } = sourceOf(item, index);\n  const loans = Array.isArray(item.json.body) ? item.json.body : [];\n  for (const loan of loans) out.push({ json: { ...loan, deployment, siteUrl } });\n});\nreturn out;\n"
+        "jsCode": "// The HTTP node returns only the response, so each loan gets its deployment and site URL back\n// from the signed GET it came from (paired item). The write-back then goes to that same\n// deployment, so each deployment keeps its own <loanId>:<day> idempotency. A deployment whose GET\n// failed is skipped here (its reminders don't block the other one's) and alerted on by\n// \"Alert on failures\".\nconst signed = $('Sign GET overdue-loans').all();\nconst sourceOf = (item, index) => {\n  const p = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const at = p && typeof p.item === 'number' ? p.item : index;\n  return (signed[at] || signed[index]).json;\n};\n\nconst out = [];\n$input.all().forEach((item, index) => {\n  if (item.json.error) return;\n  const { deployment, siteUrl } = sourceOf(item, index);\n  const loans = Array.isArray(item.json.body) ? item.json.body : [];\n  for (const loan of loans) out.push({ json: { ...loan, deployment, siteUrl } });\n});\nreturn out;\n"
       },
       "id": "a9a4e433-ed46-435e-81ea-fc6767c4bac7",
       "name": "Tag loans by deployment",
@@ -105,8 +105,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        300
+        1100,
+        420
       ]
     },
     {
@@ -119,7 +119,7 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        1100,
+        880,
         300
       ]
     },
@@ -133,7 +133,7 @@
       "typeVersion": 2,
       "position": [
         1320,
-        400
+        420
       ]
     },
     {
@@ -167,23 +167,50 @@
       "typeVersion": 4.2,
       "position": [
         1540,
-        400
+        420
       ],
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 10000
+      "waitBetweenTries": 10000,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "// Runs after the reminders branch (it sits below it). A deployment whose GET still failed after\n// 3 tries is written to the outbox and then thrown, so the error workflow alerts on it; the other\n// deployment's reminders were already sent and written back.\nconst fs = require('fs');\nconst signed = $('Sign GET overdue-loans').all();\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n\nconst failed = [];\n$input.all().forEach((item, index) => {\n  if (!item.json.error) return;\n  const p = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const at = p && typeof p.item === 'number' ? p.item : index;\n  const source = (signed[at] || signed[index]).json;\n  const err = item.json.error;\n  failed.push({ deployment: source.deployment, error: oneLine(typeof err === 'string' ? err : err && err.message, 200) });\n});\nif (failed.length === 0) return [];\n\nif ($env.LENDLOOP_MOCK_OUTBOX) {\n  for (const f of failed) {\n    const entry = { at: new Date().toISOString(), channel: 'overdue-fetch-failed', deployment: f.deployment, error: f.error };\n    fs.appendFileSync($env.LENDLOOP_MOCK_OUTBOX, JSON.stringify(entry) + '\\n');\n  }\n}\nthrow new Error('GET /n8n/overdue-loans failed for ' + failed.map((f) => f.deployment + ' (' + f.error + ')').join(', '));\n"
+        "jsCode": "// Runs last (it sits below the reminders branch, and n8n finishes one branch before the next). A\n// deployment whose GET still failed after 3 tries is written to the outbox; write-backs that failed\n// were already written by \"Check write-backs\". Then one error is thrown for all of them, so the\n// error workflow alerts once, after every reachable loan got its reminder and write-back.\nconst fs = require('fs');\nconst signed = $('Sign GET overdue-loans').all();\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n// Earlier nodes that may not have run (no overdue loans: the loop never started).\nconst ran = (name) => {\n  try {\n    const node = $(name);\n    if (node.isExecuted === false) return [];\n    return (node.all() || []).map((item) => item.json);\n  } catch (error) {\n    return [];\n  }\n};\n\nconst failed = [];\n$input.all().forEach((item, index) => {\n  if (!item.json.error) return;\n  const p = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const at = p && typeof p.item === 'number' ? p.item : index;\n  const source = (signed[at] || signed[index]).json;\n  const err = item.json.error;\n  failed.push({ deployment: source.deployment, error: oneLine(typeof err === 'string' ? err : err && err.message, 200) });\n});\nconst writeBacks = ran('Check write-backs');\nif (failed.length === 0 && writeBacks.length === 0) return [];\n\nif ($env.LENDLOOP_MOCK_OUTBOX) {\n  for (const f of failed) {\n    const entry = { at: new Date().toISOString(), channel: 'overdue-fetch-failed', deployment: f.deployment, error: f.error };\n    fs.appendFileSync($env.LENDLOOP_MOCK_OUTBOX, JSON.stringify(entry) + '\\n');\n  }\n}\nconst problems = [];\nif (failed.length) problems.push('GET /n8n/overdue-loans failed for ' + failed.map((f) => f.deployment + ' (' + f.error + ')').join(', '));\nif (writeBacks.length) {\n  problems.push('reminder-status write-back failed for ' + writeBacks.map((w) => w.loanId + ' on ' + w.deployment + ' (' + w.error + ')').join(', '));\n}\nthrow new Error(problems.join('; '));\n"
       },
       "id": "ff011d73-1988-4023-b103-3a3f978a2984",
-      "name": "Alert on failed fetch",
+      "name": "Alert on failures",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         660,
-        560
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Runs once per loan, right after its write-back (the loop hands over one loan at a time). The\n// HTTP node returns only Convex's answer, so the loan and deployment come from this turn's signed\n// request. A write-back that failed after its 3 tries is kept as a result, not thrown: the other\n// loans still get their reminder, and \"Alert on failures\" reports it at the end of the run.\nconst oneLine = (value, max) => String(value == null ? '' : value).replace(/\\s+/g, ' ').trim().slice(0, max);\n\nconst signed = $('Sign POST reminder-status').first().json;\nconst request = JSON.parse(signed.body);\nconst answer = $input.first().json;\nconst err = answer.error;\nconst result = {\n  deployment: signed.deployment,\n  loanId: request.loanId,\n  idempotencyKey: request.idempotencyKey,\n  reminder: request.status,\n  writeBack: err ? 'failed' : 'ok',\n};\nif (err) result.error = oneLine(typeof err === 'string' ? err : err.message || JSON.stringify(err), 200);\nreturn [{ json: result }];\n"
+      },
+      "id": "6fbb8529-f197-4227-b745-648a5c22f51c",
+      "name": "Record write-back result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The loop's \"done\" output: one result per loan. Failed write-backs are written to the outbox and\n// passed on; \"Alert on failures\" raises one alert for them and any failed fetch.\nconst fs = require('fs');\nconst failed = $input.all().map((item) => item.json).filter((r) => r.writeBack === 'failed');\nif ($env.LENDLOOP_MOCK_OUTBOX) {\n  for (const f of failed) {\n    const entry = { at: new Date().toISOString(), channel: 'overdue-writeback-failed', deployment: f.deployment, loanId: f.loanId, reminder: f.reminder, error: f.error };\n    fs.appendFileSync($env.LENDLOOP_MOCK_OUTBOX, JSON.stringify(entry) + '\\n');\n  }\n}\nreturn failed.map((f) => ({ json: f }));\n"
+      },
+      "id": "5c44f71e-6512-428f-955c-8830ab5e3fa6",
+      "name": "Check write-backs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        140
       ]
     }
   ],
@@ -230,7 +257,7 @@
             "index": 0
           },
           {
-            "node": "Alert on failed fetch",
+            "node": "Alert on failures",
             "type": "main",
             "index": 0
           }
@@ -241,7 +268,7 @@
       "main": [
         [
           {
-            "node": "One at a time",
+            "node": "Sign POST reminder-status",
             "type": "main",
             "index": 0
           }
@@ -250,10 +277,16 @@
     },
     "One at a time": {
       "main": [
-        [],
         [
           {
-            "node": "Sign POST reminder-status",
+            "node": "Check write-backs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send reminder (mock outbox)",
             "type": "main",
             "index": 0
           }
@@ -275,7 +308,7 @@
       "main": [
         [
           {
-            "node": "One at a time",
+            "node": "Record write-back result",
             "type": "main",
             "index": 0
           }
@@ -286,7 +319,18 @@
       "main": [
         [
           {
-            "node": "Send reminder (mock outbox)",
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record write-back result": {
+      "main": [
+        [
+          {
+            "node": "One at a time",
             "type": "main",
             "index": 0
           }

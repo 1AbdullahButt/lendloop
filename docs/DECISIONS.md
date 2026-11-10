@@ -180,7 +180,7 @@ One line each: decision — reason. Agents add to this as they build; the README
 - `style-src` keeps `'unsafe-inline'`: React `style={{}}` props can't carry a nonce, and style injection is far lower risk than script.
 - `CSP_REPORT_ONLY=1` is a deploy-time switch to report-only, so a CSP mistake can't ship a broken sign-in.
 - Overdue reminders cover dev and production from one workflow: one item per deployment, each URL from n8n env (`CONVEX_SITE_URL`, `CONVEX_SITE_URL_PROD`), each signed with that deployment's secret (`N8N_TO_CONVEX_SECRET_PROD` falls back to the shared one). Each write-back goes to the deployment the loan came from, so each keeps its own `<loanId>:<day>` key.
-- The GET continues on error, so one unreachable deployment doesn't cancel the other's reminders; a separate "Alert on failed fetch" node logs and throws afterwards, so the error workflow still fires (no silent failure).
+- The GET continues on error, so one unreachable deployment doesn't cancel the other's reminders; a separate "Alert on failed fetch" node (now "Alert on failures", see Review fixes) logs and throws afterwards, so the error workflow still fires (no silent failure).
 - Admin "Older failures (n)": failed request emails the loan has moved past (same rule as `admin.resendEvent`, `lib/adminEvents.ts`) collapse into a closed `<details>` under the table, and "Needs attention" counts only resendable ones. Display only: rows are never deleted, so the audit trail stays complete.
 
 ### Demo cleanup
@@ -192,3 +192,14 @@ One line each: decision — reason. Agents add to this as they build; the README
 ### Sign-up link
 - Sign-up was already open (Clerk sign-up mode "public", `/sign-up` route, `signUpUrl` wired), but the only link to it was the footer inside Clerk's sign-in card; the home page now links to `/sign-up` in the header and under the hero button, so visitors can find it.
 - README "Try the live demo": demo accounts are sent with the application, never committed (rule 4: no real emails or passwords in the repo).
+
+### Review fixes
+- The demo people's `example.com` addresses stay in the seed and e2e scripts (the e2e run finds its users by them), so they are not treated as secret: the live site relies on Clerk test mode being off and on passwords sent with the application. The README no longer lists them or the test code.
+- `loans.request` refuses a second pending request from the same borrower on the same tool with overlapping dates (`CONFLICT`): R7 keys only dedupe transitions of one loan, and a double click creates a new loan. Other borrowers may still overlap (R3).
+- Per-user limit of 10 requests in a rolling hour, counted from the borrower's own loans (`by_borrower`), with `CONFLICT`: no new error code (the five codes are fixed), no new table, and rejected calls don't count. Convex's rate-limiter component is the production choice.
+- Outbound fetch has `AbortSignal.timeout(10 s)`; a timeout is an ordinary failed attempt with the message "No answer from webhook within 10 s".
+- `automationEvents.lastAttemptAt` (optional) records a queued row's last progress; a 5-minute cron (`automation.sweepStuck`) counts a request notification queued with no progress for 15 min as a failed attempt. 15 min is past the longest legitimate wait (10 min before the last retry plus one 10 s attempt). It reuses markFailed's logic, so it schedules the next retry or marks the row failed, where Resend works; Resend sets `lastAttemptAt` so its own attempt isn't swept.
+- A swept job that was only slow may still reach n8n; both deliveries carry the same eventId and n8n's duplicate check sends one email.
+- Reminder errors from n8n and outbound network errors get email-shaped text replaced by `[redacted-email]` before storage (same pattern as the n8n error handler): admins see `lastError`.
+- overdue-reminders sends and writes back one loan at a time inside the loop, so a failed write-back can't leave already-sent reminders unrecorded. The write-back node continues on error; "Record write-back result" keeps the outcome per loan, "Check write-backs" logs failures at the loop's end, and "Alert on failures" (renamed from "Alert on failed fetch") throws once for fetch and write-back failures, after the run.
+- Kept as known limits (README, production section): admin promotion fails open when `email_verified` is missing, and the HMAC covers only `timestamp.rawBody` (no method, path or deployment).
