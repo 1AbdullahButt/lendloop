@@ -203,12 +203,20 @@ string once and signs that string. **POST reminder status** then sends `$json.bo
   10 s timeout. A retry re-sends the request signed by the preceding Code node, so it reuses that
   timestamp. The worst case is 3 × 10 s timeouts + 2 × 10 s waits ≈ 50 s, well inside the 5-minute
   window.
-- The POSTs go through **One at a time** (Loop Over Items, batch size 1), so each item is signed
-  just before its own request. A long overdue list can never push a timestamp past the window.
+- Each overdue loan goes through **One at a time** (Loop Over Items, batch size 1) on its own:
+  **Send reminder** → **Sign POST reminder-status** → **POST reminder status** → **Record
+  write-back result**, then the next loan. Each write-back is signed just before its request, so a
+  long list can never push a timestamp past the window, and no loan is emailed before the one
+  before it was recorded.
 - If the mock send fails for an item, the node does not throw. It posts `status: "failed"` with a
-  short `error` (≤ 200 chars). If a Convex call still fails after 3 tries, the run stops and the
-  error handler fires. The next run retries safely, because write-backs are idempotent by
-  `idempotencyKey` (`<loanId>:<YYYY-MM-DD>`).
+  short `error` (≤ 200 chars).
+- **POST reminder status** continues on error: a write-back that still fails after 3 tries
+  becomes a `failed` result and the loop moves on. When the loop is done, **Check write-backs**
+  logs each failed one to the outbox, and **Alert on failures** (which runs last, below the loop)
+  throws once for failed fetches and failed write-backs together, so the error handler fires
+  after every reachable loan was handled. The next run retries safely: write-backs are idempotent
+  by `idempotencyKey` (`<loanId>:<YYYY-MM-DD>`), and a loan whose reminder was sent but not
+  recorded is offered again (one extra email, never a lost record).
 
 ## Data minimisation
 

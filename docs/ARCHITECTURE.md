@@ -228,8 +228,8 @@ sequenceDiagram
   Q->>DB: skip loans with a sent event keyed loanId:today
   Q-->>H: [{loanId, toolName, borrowerName, borrowerEmail, endDate, idempotencyKey}]
   H-->>C: 200 JSON
-  C->>C: split items, mock send each reminder (email masked in outbox)
-  loop One at a time (batch size 1)
+  loop One at a time (batch size 1), per overdue loan
+    C->>C: mock send this reminder (email masked in outbox)
     C->>C: body = {idempotencyKey, loanId, status, error?}, fresh ts + sig
     C->>H: POST /n8n/reminder-status (signed, retry 3x / 10s)
     H->>H: verify signature (401), then shape (400)

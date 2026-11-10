@@ -3,15 +3,23 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { isIsoDate } from "./lib/dates";
 import { typeFromKey, type LoanEventType } from "./lib/events";
 import { sign } from "./lib/hmac";
+import { redactEmails } from "./lib/redact";
 
 /** 1 initial attempt + 3 retries (SPEC 6.1). */
 export const RETRY_DELAYS_MS = [30_000, 120_000, 600_000] as const;
 export const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 const MAX_ERROR_LENGTH = 300;
+/** n8n answers in well under a second; a hung connection must not keep the row "queued". */
+export const DELIVERY_TIMEOUT_MS = 10_000;
+/**
+ * A queued email with no progress for this long is stuck: the longest legitimate wait is the
+ * 10-minute gap before the last retry, plus one 10 s attempt.
+ */
+export const STUCK_AFTER_MS = 15 * 60 * 1000;
 
 type PayloadBase = {
   type: LoanEventType;
@@ -70,9 +78,12 @@ export const getEventPayload = internalQuery({
   },
 });
 
-/** Never store the secret or the webhook URL (it may carry a token) in `lastError`. */
+/**
+ * Never store the secret or the webhook URL (it may carry a token) in `lastError`, nor an
+ * address an error message happened to echo.
+ */
 function redact(message: string): string {
-  let out = message;
+  let out = redactEmails(message);
   for (const sensitive of [process.env.CONVEX_TO_N8N_SECRET, process.env.N8N_REQUEST_WEBHOOK_URL]) {
     if (sensitive) out = out.split(sensitive).join("[redacted]");
   }
@@ -107,9 +118,13 @@ async function post(eventId: Id<"automationEvents">, base: PayloadBase): Promise
         "X-LendLoop-Signature": await sign(secret, timestamp, body),
       },
       body,
+      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
     });
     return res.ok ? null : `HTTP ${res.status} from webhook`;
   } catch (err) {
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      return `No answer from webhook within ${DELIVERY_TIMEOUT_MS / 1000} s`;
+    }
     return redact(`Network error: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -145,20 +160,52 @@ export const markSent = internalMutation({
 });
 
 /** Records a failed attempt and schedules the next retry, or gives up after the last one. */
+async function recordFailure(ctx: MutationCtx, event: Doc<"automationEvents">, error: string): Promise<void> {
+  const attempts = event.attempts + 1;
+  const lastError = redact(error);
+  if (attempts >= MAX_ATTEMPTS) {
+    await ctx.db.patch(event._id, { status: "failed", attempts, lastError });
+    return;
+  }
+  await ctx.db.patch(event._id, { attempts, lastError, lastAttemptAt: Date.now() });
+  await ctx.scheduler.runAfter(RETRY_DELAYS_MS[attempts - 1], internal.automation.deliver, { eventId: event._id });
+}
+
 export const markFailed = internalMutation({
   args: { eventId: v.id("automationEvents"), error: v.string() },
   handler: async (ctx, { eventId, error }) => {
     const event = await ctx.db.get(eventId);
     if (!event || event.status !== "queued") return null;
-    const attempts = event.attempts + 1;
-    const lastError = redact(error);
-    if (attempts >= MAX_ATTEMPTS) {
-      await ctx.db.patch(eventId, { status: "failed", attempts, lastError });
-      return null;
-    }
-    await ctx.db.patch(eventId, { attempts, lastError });
-    await ctx.scheduler.runAfter(RETRY_DELAYS_MS[attempts - 1], internal.automation.deliver, { eventId });
+    await recordFailure(ctx, event, error);
     return null;
+  },
+});
+
+export const STUCK_ERROR = "Delivery did not finish (interrupted or timed out)";
+
+/**
+ * Cron (convex/crons.ts): a request notification still queued with no progress for
+ * STUCK_AFTER_MS lost its delivery job. Counting that as a failed attempt either schedules the
+ * next retry or marks it failed, where an admin can Resend it. If the "lost" job was only slow
+ * and still reaches n8n, both deliveries carry the same eventId, and n8n's "Drop duplicate
+ * eventId" sends one email.
+ */
+export const sweepStuck = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<{ swept: number }> => {
+    const cutoff = Date.now() - STUCK_AFTER_MS;
+    const queued = await ctx.db
+      .query("automationEvents")
+      .withIndex("by_status", (q) => q.eq("status", "queued"))
+      .collect();
+    let swept = 0;
+    for (const event of queued) {
+      if (event.kind !== "request_notification") continue;
+      if ((event.lastAttemptAt ?? event.createdAt) > cutoff) continue;
+      await recordFailure(ctx, event, STUCK_ERROR);
+      swept++;
+    }
+    return { swept };
   },
 });
 
@@ -248,7 +295,8 @@ export const recordReminderStatus = internalMutation({
       return { ok: true };
     }
 
-    const failure = (args.error ?? "Reminder failed").slice(0, MAX_ERROR_LENGTH);
+    // n8n's text can echo the recipient (SMTP errors often do); admins see this row.
+    const failure = redactEmails(args.error ?? "Reminder failed").slice(0, MAX_ERROR_LENGTH);
     await ctx.db.insert("automationEvents", {
       loanId,
       kind: "overdue_reminder",

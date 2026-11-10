@@ -12,6 +12,13 @@ import { loanActivity, loanAutomation, makeLookups } from "./lib/views";
 /** A loan lasts at most this many calendar days, counting the first and the last day. */
 export const MAX_LOAN_DAYS = 30;
 
+/**
+ * Each request emails the lender, and sign-up is open, so one account must not be able to flood
+ * a lender: at most this many requests per borrower in a rolling hour (rejected ones don't count).
+ */
+export const REQUESTS_PER_HOUR = 10;
+const HOUR_MS = 60 * 60 * 1000;
+
 /** R2, with "today" taken in the acting user's own time zone (UTC if they have none). */
 function checkDates(startDate: string, endDate: string, today: string): void {
   if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
@@ -51,6 +58,27 @@ export const request = mutation({
     if (!tool || tool.removedAt !== undefined) throw appError("NOT_FOUND", "Tool not found.");
     if (tool.ownerId === me._id) throw appError("FORBIDDEN", "You cannot borrow your own tool.");
     checkDates(args.startDate, args.endDate, todayIn(me.timeZone));
+
+    const mine = await ctx.db
+      .query("loans")
+      .withIndex("by_borrower", (q) => q.eq("borrowerId", me._id))
+      .collect();
+    // A double click, or the same request sent twice: one pending request per tool and dates.
+    // Requests from other borrowers may still overlap freely (R3).
+    if (
+      mine.some(
+        (l) =>
+          l.toolId === tool._id &&
+          l.status === "pending" &&
+          rangesOverlap(args.startDate, args.endDate, l.startDate, l.endDate),
+      )
+    ) {
+      throw appError("CONFLICT", "You already have a pending request for this tool on some of these dates.");
+    }
+    const since = Date.now() - HOUR_MS;
+    if (mine.filter((l) => l.createdAt > since).length >= REQUESTS_PER_HOUR) {
+      throw appError("CONFLICT", `You can send at most ${REQUESTS_PER_HOUR} requests an hour. Please try again later.`);
+    }
 
     const loanId = await ctx.db.insert("loans", {
       toolId: tool._id,

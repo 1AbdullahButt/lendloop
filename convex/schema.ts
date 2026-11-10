@@ -83,7 +83,11 @@ export default defineSchema({
     lastError: v.optional(v.string()),
     createdAt: v.number(),
     sentAt: v.optional(v.number()),
+    // When a queued request notification last made progress (a failed attempt, a resend). With
+    // createdAt, it tells a row waiting for its next retry from one whose delivery died.
+    lastAttemptAt: v.optional(v.number()),
   })
     .index("by_loan", ["loanId"])
-    .index("by_key", ["idempotencyKey"]),
+    .index("by_key", ["idempotencyKey"])
+    .index("by_status", ["status"]),
 });
