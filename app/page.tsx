@@ -43,9 +43,15 @@ export default function HomePage() {
           <Show
             when="signed-in"
             fallback={
-              <Link href="/sign-in" className={buttonClass("primary")}>
-                Sign in
-              </Link>
+              <>
+                {/* Sign-up is open (Clerk "public" mode); without a link here it was only reachable from the sign-in card's footer. */}
+                <Link href="/sign-up" className={textLink}>
+                  Sign up
+                </Link>
+                <Link href="/sign-in" className={buttonClass("primary")}>
+                  Sign in
+                </Link>
+              </>
             }
           >
             <Link href="/tools" className={buttonClass("primary")}>
@@ -74,10 +80,15 @@ export default function HomePage() {
               <Show
                 when="signed-in"
                 fallback={
-                  <Link href="/sign-in" className={buttonClass("primary", "lg")}>
-                    Sign in to lend or borrow
-                    <Arrow />
-                  </Link>
+                  <>
+                    <Link href="/sign-in" className={buttonClass("primary", "lg")}>
+                      Sign in to lend or borrow
+                      <Arrow />
+                    </Link>
+                    <Link href="/sign-up" className="inline-flex min-h-11 items-center font-bold text-ink">
+                      New here? Create an account
+                    </Link>
+                  </>
                 }
               >
                 <Link href="/tools" className={buttonClass("primary", "lg")}>

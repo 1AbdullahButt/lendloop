@@ -13,7 +13,7 @@ HMAC-signed webhooks in both directions. The stack is Next.js 15 (App Router), C
 
 | Role | Can do |
 |---|---|
-| Guest | See the public list of available tools (name and category only), then sign in. |
+| Guest | See the public list of available tools (name and category only), then sign up or sign in. |
 | Signed-in user | Browse every tool with status, condition, owner name (first name and last initial, e.g. "Ben C.") and Trusted Lender badge; filter by category and search by name. List, edit and delete their own tools. Request someone else's tool for up to 30 days. Cancel their own pending requests. Approve, decline and mark returned on requests for their tools. See every email sent about each request, including failed ones. |
 | Admin | Everything a user can do. Also: see all loans, tools (including removed ones), neighbors and automated emails (failed ones show why), resend a failed email, remove any listing, and toggle Trusted Lender. |
 
@@ -22,6 +22,16 @@ Roles are stored only in the Convex `users` table. See [Admin bootstrap](#5-admi
 **Live demo:** https://lendloop-demo.vercel.app, running on Vercel with a Convex production
 deployment and the Clerk **development** instance. Emails only go out while n8n is running on
 my PC: see [Deployment](#deployment).
+
+## Try the live demo
+
+- **Demo accounts** (a lender, a borrower and an admin) are sent with my application. No email
+  address or password for them is in this repo, its tests or its history.
+- **Or create your own:** sign-up is open. Use **Sign up** on the home page (or "Don't have an
+  account? Sign up" on the sign-in card) and you get a normal user account. Admin is never given
+  at sign-up: it comes only from the Convex `users` table ([Admin bootstrap](#5-admin-bootstrap)).
+- Emails (request notices, overdue reminders) only go out while n8n runs on my PC; everything
+  else works any time.
 
 ---
 
