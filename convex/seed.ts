@@ -292,3 +292,33 @@ export const cleanupRun = internalMutation({
   },
 });
 
+
+/**
+ * Deletes a user row that nothing points at (no tools owned, no loans as borrower or lender),
+ * e.g. a retired admin whose Clerk account no longer has an email. `ADMIN_EMAILS` never
+ * demotes, so removing the row is how such an account stops being admin; if that Clerk user
+ * signs in again, `users.ensure` creates a fresh non-admin row. Refuses with CONFLICT when
+ * anything is linked, so it can't orphan a tool or a loan.
+ */
+export const removeUnlinkedUser = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) throw appError("NOT_FOUND", "No such user");
+    const tool = await ctx.db
+      .query("tools")
+      .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+      .first();
+    const asBorrower = await ctx.db
+      .query("loans")
+      .withIndex("by_borrower", (q) => q.eq("borrowerId", userId))
+      .first();
+    const asLender = await ctx.db
+      .query("loans")
+      .withIndex("by_lender", (q) => q.eq("lenderId", userId))
+      .first();
+    if (tool || asBorrower || asLender) throw appError("CONFLICT", "This user still has tools or loans");
+    await ctx.db.delete(userId);
+    return { deleted: true };
+  },
+});

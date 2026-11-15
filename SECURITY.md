@@ -41,13 +41,17 @@ These are fine for a recorded demo and wrong for real users.
   every restart, has no SLA and no ingress rules. That is why an nginx edge sits in front of n8n.
   After a restart, `N8N_REQUEST_WEBHOOK_URL` must be updated on both Convex deployments.
 - **n8n runs on my PC.** Emails and reminders work only while the PC, Docker and the tunnel are up.
-- **Demo accounts.** Five demo people (Ben, Maya, Marcus, Olivia, Jake) are real accounts on the
+- **Demo accounts.** Five demo people (Ben, Maya, Marcus, Olivia, Jake) and a shared demo admin
+  ("Admin Demo") are real accounts on the
   Clerk development instance the live site uses. Their addresses are on `example.com` and appear
   in the seed and test scripts, so they are not secret. What protects them is that sign-in needs
   the password (sent with my application, never in the repo) and that Clerk's **test mode** is
   off, so the fixed test verification code doesn't work. The e2e run signs in with sign-in tokens
-  made from the secret key, which don't need test mode. The admin account uses a different,
-  non-test address. For real users: a Clerk production instance, where none of this applies.
+  made from the secret key, which don't need test mode. The demo admin is an `example.com`
+  address too; it is admin only because it is the one address in Convex `ADMIN_EMAILS` (dev and
+  production), never because of anything in Clerk. Anyone given its password is a full admin of
+  the live demo, so it is shared only with reviewers, and the demo data can be reset. For real
+  users: a Clerk production instance and named admins, where none of this applies.
 - **Clerk development instance, with Device Trust off.** Dev instances show a "Development mode"
   badge and allow test sign-ins. Device Trust was turned off so the demo accounts can sign in from
   the recording browsers without email codes.
