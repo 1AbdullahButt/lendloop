@@ -28,8 +28,8 @@ my PC: see [Deployment](#deployment).
 - **Demo accounts** (a lender, a borrower and an admin): the sign-in details are sent with my
   application. No password is in this repo, its tests or its history. The seed and test scripts
   do name the demo people's addresses, but they are all on the reserved `example.com` domain,
-  which has no mailboxes, so an address alone can't be used to sign in. The admin account isn't
-  one of them.
+  which has no mailboxes, so an address alone can't be used to sign in. That includes the shared
+  demo admin ("Admin Demo"), which is admin only because Convex `ADMIN_EMAILS` lists it.
 - **Or create your own:** sign-up is open. Use **Sign up** on the home page (or "Don't have an
   account? Sign up" on the sign-in card) and you get a normal user account. Admin is never given
   at sign-up: it comes only from the Convex `users` table ([Admin bootstrap](#5-admin-bootstrap)).

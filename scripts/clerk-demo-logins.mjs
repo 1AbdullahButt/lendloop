@@ -1,7 +1,7 @@
-// Gives the five demo accounts a simple sign-in in your Clerk *development* instance:
+// Gives the six demo accounts (five neighbors and the demo admin) a simple sign-in in your Clerk *development* instance:
 // a second email address (<name>_test@example.com), verified and made primary, and one password
-// you type for all five. The +clerk_test address stays on each account, so the e2e run, which
-// signs in by it, keeps working.
+// you type for all six. The +clerk_test address stays on each account, so the e2e run, which
+// signs in by it, keeps working. The admin has only its example.com address.
 //
 //   node scripts/clerk-demo-logins.mjs           # asks for the password, then updates Clerk
 //   node scripts/clerk-demo-logins.mjs --check   # read-only: shows each account's state
@@ -28,6 +28,8 @@ const ACCOUNTS = [
   { key: "olivia", name: "Olivia Parker" },
   { key: "jake", name: "Jake Thompson" },
 ].map((a) => ({ ...a, legacy: `${a.key}+clerk_test@example.com`, login: `${a.key}_test@example.com` }));
+// The shared demo admin has only its example.com address, so it is its own "legacy" address.
+ACCOUNTS.push({ key: "admin", name: "Admin Demo", legacy: "admin_test@example.com", login: "admin_test@example.com" });
 
 function fail(message) {
   console.error(message);
@@ -117,7 +119,7 @@ if (!process.stdin.isTTY) {
   fail("Run this in an interactive terminal (PowerShell or Windows Terminal), so the password can be typed hidden.");
 }
 
-console.log("One password for all five demo accounts. Clerk enforces its own rules (this instance:");
+console.log("One password for all six demo accounts. Clerk enforces its own rules (this instance:");
 console.log("at least 15 characters, and not a known breached password). Input is hidden.");
 const password = await askHidden("Password: ");
 if (!password) fail("No password entered. Nothing changed.");

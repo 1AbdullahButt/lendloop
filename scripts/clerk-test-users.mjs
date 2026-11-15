@@ -29,6 +29,9 @@ const USERS = [
   { key: "olivia", first: "Olivia", last: "Parker", role: "seed neighbor" },
   { key: "jake", first: "Jake", last: "Thompson", role: "seed neighbor" },
 ].map((u) => ({ ...u, email: `${u.key}+clerk_test@example.com` }));
+// The shared demo admin signs in with a plain example.com address (no +clerk_test copy), so it
+// is listed apart. Admin comes from Convex ADMIN_EMAILS, never from Clerk.
+USERS.push({ key: "admin", first: "Admin", last: "Demo", role: "shared demo admin (ADMIN_EMAILS)", email: "admin_test@example.com" });
 
 async function clerk(method, path, body) {
   const res = await fetch(`${API}${path}`, {
