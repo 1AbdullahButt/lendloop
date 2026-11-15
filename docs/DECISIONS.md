@@ -174,6 +174,7 @@ One line each: decision — reason. Agents add to this as they build; the README
 - Incoming identifies borrowers by an opaque per-response key (`b1`, `b2`, …) instead of a user id: the clash helper only needs to tell borrowers apart.
 - `displayName` is duplicated in `convex/lib/public.ts` (Convex can't import `lib/`); a unit test asserts it agrees with `lib/names.ts shortName`.
 - n8n sits behind an nginx edge that passes only `/webhook/*` and `/healthz`: quick tunnels have no ingress rules, so the restriction has to live in a proxy. Port 5678 is bound to 127.0.0.1 so the editor is local-only.
+- The quick tunnel uses `--protocol http2`: on this network QUIC (UDP) dropped an idle tunnel after 36 min, and Cloudflare forgets a dropped quick tunnel (new URL needed); a TCP link held up better.
 - `/webhook-test/*` is not proxied: test webhooks run unsaved editor workflows and are never needed from outside.
 - Replay inside the 5-minute window is stopped in n8n by remembering sent `eventId`s (workflow static data, 24 h, max 5000); an id is stored only after the send succeeded so a genuine retry still delivers, and a duplicate answers 200 so Convex doesn't retry it.
 - CSP comes from Clerk's middleware `strict` mode (per-request nonce + `'strict-dynamic'`) rather than a static header: Clerk loads scripts from its frontend API host, and a nonce avoids `'unsafe-inline'` for scripts. `<ClerkProvider dynamic>` is needed so Clerk's script tag carries the nonce.

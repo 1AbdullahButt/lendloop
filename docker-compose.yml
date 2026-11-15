@@ -59,7 +59,9 @@ services:
     image: cloudflare/cloudflared:2026.10.0
     profiles: ["tunnel"]
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://edge:80
+    # HTTP/2 over TCP: on this network the default QUIC (UDP) link dropped a quick tunnel after
+    # 36 min idle ("no recent network activity"), and a dropped quick tunnel never comes back.
+    command: tunnel --no-autoupdate --protocol http2 --url http://edge:80
     depends_on:
       - edge
 
