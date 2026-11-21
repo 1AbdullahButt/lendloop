@@ -23,6 +23,22 @@ Roles are stored only in the Convex `users` table. See [Admin bootstrap](#5-admi
 deployment and the Clerk **development** instance. Emails only go out while n8n is running on
 my PC: see [Deployment](#deployment).
 
+## Demo and screenshots
+
+![LendLoop: neighborhood tool lending](demo/upwork/01-lendloop-cover.png)
+
+| Product | Automation (n8n) |
+|---|---|
+| ![Picking dates on a borrowing card](demo/screenshots/03-request-dates.png) | ![The request-notification workflow in the n8n editor](demo/screenshots/06-n8n-request-notification.png) |
+
+- **Walkthrough video (71 s):** [demo/LendLoop-demo.mp4](demo/LendLoop-demo.mp4). It shows the
+  listing, borrowing, approval and return flow; the actual n8n editor starts at **0:46**.
+- **All screenshots:** [product and n8n, full size](demo/screenshots/) and the
+  [Upwork-sized set](demo/upwork/).
+- **One-page write-ups (PDF, 2 pages each):**
+  [Product walkthrough](demo/upwork/LendLoop-Product-Walkthrough.pdf) and
+  [Automation and security](demo/upwork/LendLoop-Automation-and-Security.pdf).
+
 ## Try the live demo
 
 - **Demo accounts** (a lender, a borrower and an admin): the sign-in details are sent with my
